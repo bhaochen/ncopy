@@ -1,4 +1,7 @@
-# Thuki
+<h1 align="center">
+  Thuki
+</h1>
+
 
 <p align="center">
   <img src="public/thuki-logo.png" alt="Thuki logo" width="300" />
