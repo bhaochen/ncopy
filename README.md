@@ -1,7 +1,8 @@
-<h1 align="center">
-  Thuki
-</h1>
 
+
+<h1 align="center">
+  Thuki - WIP
+</h1>
 
 <p align="center">
   <img src="public/thuki-logo.png" alt="Thuki logo" width="300" />
@@ -30,19 +31,24 @@
 
 ---
 
-⚠️ **BETA: Active Development.** This project is in active development. Features may change, bugs may occur, and AI model outputs are not guaranteed to be perfect or accurate. Use at your own risk. Always verify important information with trusted sources.
-
----
-
 **No API keys. No subscriptions. No cloud. No telemetry. Free forever.**
 
-What is Thuki?
+Thuki (thư kí - Vietnamese for secretary) is a lightweight macOS overlay powered by local AI models running entirely on your own machine, built for quick, uninterrupted asks without ever leaving what you're doing.
 
-Thuki is a lightweight macOS overlay powered by local AI models running entirely on your own machine, built for quick, uninterrupted asks without ever leaving what you're doing.
+## See It in Action
 
-How to use Thuki?
+### Basic Usage
 
-Highlight a piece of text you have a question about in any app, double-tap Control <kbd>⌃</kbd>, and Thuki floats up right on top, with your selection pre-filled and ready. Ask your question, then save the conversation or toss it away and get straight back to work. No app switching. No breaking your flow. Everything happens in one Space, exactly where you already are.
+Double-tap Control <kbd>⌃</kbd> to summon Thuki from anywhere. Ask a question, get an answer, and dismiss. Use `/screen` or the screenshot button to capture your screen and attach it as context.
+
+https://github.com/user-attachments/assets/57df0efe-24eb-4875-a83d-e605e0c6f8b4
+
+
+### Overlay Mode
+
+Thuki floats above every app, including fullscreen ones. Highlight text anywhere, double-tap Control <kbd>⌃</kbd>, and Thuki opens with your selection pre-filled as a quote, ready to ask about.
+
+https://github.com/user-attachments/assets/f52b55f7-479d-4c2e-a361-1553fe132712
 
 ## Why Thuki?
 
