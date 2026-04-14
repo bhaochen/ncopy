@@ -26,6 +26,7 @@ pub struct SaveMessagePayload {
     pub content: String,
     pub quoted_text: Option<String>,
     pub image_paths: Option<Vec<String>>,
+    pub thinking_content: Option<String>,
 }
 
 /// Response returned when saving a conversation.
@@ -68,13 +69,19 @@ pub fn save_conversation(
         database::create_conversation(&conn, placeholder_title.as_deref(), &model)
             .map_err(|e| e.to_string())?;
 
-    let batch: Vec<(String, String, Option<String>, Option<String>)> = messages
+    let batch: Vec<database::MessageBatchRow> = messages
         .into_iter()
         .map(|m| {
             let image_json = m.image_paths.filter(|v| !v.is_empty()).map(|v| {
                 serde_json::to_string(&v).expect("Vec<String> serialization is infallible")
             });
-            (m.role, m.content, m.quoted_text, image_json)
+            (
+                m.role,
+                m.content,
+                m.quoted_text,
+                image_json,
+                m.thinking_content,
+            )
         })
         .collect();
 
@@ -92,6 +99,7 @@ pub fn persist_message(
     content: String,
     quoted_text: Option<String>,
     image_paths: Option<Vec<String>>,
+    thinking_content: Option<String>,
     db: State<'_, Database>,
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -105,6 +113,7 @@ pub fn persist_message(
         &content,
         quoted_text.as_deref(),
         image_json.as_deref(),
+        thinking_content.as_deref(),
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -243,6 +252,7 @@ pub async fn generate_title(
         &endpoint,
         &model_config.active,
         title_messages,
+        false,
         &client,
         cancel_token,
         |_| {}, // No per-chunk side effects; we use the accumulated return value.
@@ -289,12 +299,14 @@ mod tests {
                 content: "What is Rust?".to_string(),
                 quoted_text: None,
                 image_paths: Some(vec!["/tmp/img.jpg".to_string()]),
+                thinking_content: None,
             },
             SaveMessagePayload {
                 role: "assistant".to_string(),
                 content: "Rust is a systems programming language.".to_string(),
                 quoted_text: None,
                 image_paths: None,
+                thinking_content: Some("Let me think about Rust...".to_string()),
             },
         ];
 
@@ -311,13 +323,19 @@ mod tests {
         )
         .unwrap();
 
-        let batch: Vec<(String, String, Option<String>, Option<String>)> = messages
+        let batch: Vec<database::MessageBatchRow> = messages
             .into_iter()
             .map(|m| {
                 let image_json = m.image_paths.filter(|v| !v.is_empty()).map(|v| {
                     serde_json::to_string(&v).expect("Vec<String> serialization is infallible")
                 });
-                (m.role, m.content, m.quoted_text, image_json)
+                (
+                    m.role,
+                    m.content,
+                    m.quoted_text,
+                    image_json,
+                    m.thinking_content,
+                )
             })
             .collect();
 
@@ -332,8 +350,13 @@ mod tests {
             loaded[0].image_paths.as_deref(),
             Some(r#"["/tmp/img.jpg"]"#)
         );
+        assert_eq!(loaded[0].thinking_content, None);
         assert_eq!(loaded[1].role, "assistant");
         assert!(loaded[1].image_paths.is_none());
+        assert_eq!(
+            loaded[1].thinking_content.as_deref(),
+            Some("Let me think about Rust...")
+        );
     }
 
     #[test]

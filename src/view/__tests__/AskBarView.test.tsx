@@ -242,7 +242,9 @@ describe('AskBarView', () => {
         inputRef={makeRef()}
       />,
     );
-    expect(container.querySelector('.whitespace-pre-wrap')).toBeNull();
+    // The context area uses italic + whitespace-pre-wrap; mirror div also uses
+    // whitespace-pre-wrap but is aria-hidden, so check for the italic class.
+    expect(container.querySelector('.italic.whitespace-pre-wrap')).toBeNull();
   });
 
   it('shows stop button with accessible label during generation', () => {
@@ -1327,9 +1329,9 @@ describe('AskBarView', () => {
       const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
       // Initially row 0 is highlighted (only one command, so index stays 0)
       fireEvent.keyDown(textarea, { key: 'ArrowDown' });
-      // With one command, ArrowDown wraps back to 0; row is still highlighted
-      const option = screen.getByRole('option');
-      expect(option).toHaveAttribute('aria-selected', 'true');
+      // ArrowDown from index 0 moves to index 1
+      const options = screen.getAllByRole('option');
+      expect(options[1]).toHaveAttribute('aria-selected', 'true');
     });
 
     it('ArrowUp moves highlight to previous row (wraps)', () => {
@@ -1347,9 +1349,10 @@ describe('AskBarView', () => {
       );
       const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
       fireEvent.keyDown(textarea, { key: 'ArrowUp' });
-      // Single command wraps back to index 0
-      const option = screen.getByRole('option');
-      expect(option).toHaveAttribute('aria-selected', 'true');
+      // ArrowUp wraps to the last option
+      const options = screen.getAllByRole('option');
+      const lastOption = options[options.length - 1];
+      expect(lastOption).toHaveAttribute('aria-selected', 'true');
     });
 
     it('clicking a suggestion row calls setQuery with trigger + space', () => {
@@ -1366,8 +1369,8 @@ describe('AskBarView', () => {
           inputRef={makeRef()}
         />,
       );
-      const option = screen.getByRole('option');
-      fireEvent.mouseDown(option);
+      const options = screen.getAllByRole('option');
+      fireEvent.mouseDown(options[0]);
       expect(setQuery).toHaveBeenCalledWith('/screen ');
     });
 
@@ -1473,6 +1476,167 @@ describe('AskBarView', () => {
       const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
       fireEvent.keyDown(textarea, { key: 'Tab' });
       expect(setQuery).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Command highlighting mirror div', () => {
+    it('renders a mirror div with aria-hidden behind the textarea', () => {
+      const { container } = render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="/screen explain"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+        />,
+      );
+      const mirror = container.querySelector('[aria-hidden="true"]');
+      expect(mirror).not.toBeNull();
+      expect(mirror!.classList.contains('pointer-events-none')).toBe(true);
+    });
+
+    it('highlights /screen command in violet in the mirror div', () => {
+      const { container } = render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="/screen explain this"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+        />,
+      );
+      const mirror = container.querySelector('[aria-hidden="true"]');
+      const highlighted = mirror!.querySelector('.text-violet-400');
+      expect(highlighted).not.toBeNull();
+      expect(highlighted!.textContent).toBe('/screen');
+    });
+
+    it('highlights multiple commands in the mirror div', () => {
+      const { container } = render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="/screen /think explain"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+        />,
+      );
+      const mirror = container.querySelector('[aria-hidden="true"]');
+      const highlighted = mirror!.querySelectorAll('.text-violet-400');
+      expect(highlighted).toHaveLength(2);
+      expect(highlighted[0].textContent).toBe('/screen');
+      expect(highlighted[1].textContent).toBe('/think');
+    });
+
+    it('does not highlight partial command matches like /screensaver', () => {
+      const { container } = render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="/screensaver is nice"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+        />,
+      );
+      const mirror = container.querySelector('[aria-hidden="true"]');
+      expect(mirror!.querySelector('.text-violet-400')).toBeNull();
+      expect(mirror!.textContent).toBe('/screensaver is nice');
+    });
+
+    it('renders plain text in mirror div when no commands present', () => {
+      const { container } = render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="hello world"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+        />,
+      );
+      const mirror = container.querySelector('[aria-hidden="true"]');
+      expect(mirror!.querySelector('.text-violet-400')).toBeNull();
+      expect(mirror!.textContent).toBe('hello world');
+    });
+
+    it('makes the textarea text transparent for the mirror overlay', () => {
+      const { container } = render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="/think test"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+        />,
+      );
+      const textarea = container.querySelector('textarea');
+      expect(textarea!.classList.contains('text-transparent')).toBe(true);
+      expect(textarea!.style.caretColor).toBe('var(--color-text-primary)');
+    });
+
+    it('handles scroll event gracefully when refs are not yet set', () => {
+      // Render with a ref that has current = null to exercise the null guard
+      const nullRef = { current: null };
+      const { container } = render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="/screen test"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={nullRef}
+        />,
+      );
+      // The textarea is rendered by React, but the inputRef.current is null
+      // because we passed a ref with current=null that was not wired via callback.
+      // The scroll handler should not throw.
+      const textarea = container.querySelector('textarea')!;
+      expect(() => fireEvent.scroll(textarea)).not.toThrow();
+    });
+
+    it('syncs mirror div scroll with textarea scroll', () => {
+      const ref = makeRef();
+      const { container } = render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="/screen long text here"
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={ref}
+        />,
+      );
+      const textarea = container.querySelector('textarea')!;
+      const mirror = container.querySelector('[aria-hidden="true"]')!;
+
+      // Simulate scrolling
+      Object.defineProperty(textarea, 'scrollTop', {
+        value: 42,
+        writable: true,
+      });
+      fireEvent.scroll(textarea);
+      expect(mirror.scrollTop).toBe(42);
     });
   });
 });

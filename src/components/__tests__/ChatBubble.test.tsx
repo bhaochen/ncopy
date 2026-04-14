@@ -239,12 +239,140 @@ describe('ChatBubble', () => {
     });
   });
 
+  describe('Slash command styling', () => {
+    it('styles a leading /screen command', () => {
+      const { container } = render(
+        <ChatBubble role="user" content="/screen explain this" index={0} />,
+      );
+      const styled = container.querySelector(
+        '.font-semibold.text-\\[\\#7C2D12\\]',
+      );
+      expect(styled).not.toBeNull();
+      expect(styled!.textContent).toBe('/screen');
+    });
+
+    it('styles a leading /think command', () => {
+      const { container } = render(
+        <ChatBubble
+          role="user"
+          content="/think why is the sky blue?"
+          index={0}
+        />,
+      );
+      const styled = container.querySelector(
+        '.font-semibold.text-\\[\\#7C2D12\\]',
+      );
+      expect(styled).not.toBeNull();
+      expect(styled!.textContent).toBe('/think');
+    });
+
+    it('styles multiple commands anywhere in the text', () => {
+      const { container } = render(
+        <ChatBubble
+          role="user"
+          content="/screen /think explain this"
+          index={0}
+        />,
+      );
+      const styled = container.querySelectorAll(
+        '.font-semibold.text-\\[\\#7C2D12\\]',
+      );
+      expect(styled).toHaveLength(2);
+      expect(styled[0].textContent).toBe('/screen');
+      expect(styled[1].textContent).toBe('/think');
+    });
+
+    it('styles a command in the middle of text', () => {
+      const { container } = render(
+        <ChatBubble role="user" content="please /think about this" index={0} />,
+      );
+      const styled = container.querySelector(
+        '.font-semibold.text-\\[\\#7C2D12\\]',
+      );
+      expect(styled).not.toBeNull();
+      expect(styled!.textContent).toBe('/think');
+    });
+
+    it('does not style partial matches like /screensaver', () => {
+      const { container } = render(
+        <ChatBubble role="user" content="/screensaver is nice" index={0} />,
+      );
+      const styled = container.querySelector(
+        '.font-semibold.text-\\[\\#7C2D12\\]',
+      );
+      expect(styled).toBeNull();
+    });
+
+    it('renders plain text when no commands are present', () => {
+      render(
+        <ChatBubble role="user" content="just a normal message" index={0} />,
+      );
+      expect(screen.getByText('just a normal message')).toBeInTheDocument();
+    });
+
+    it('handles a command at the end of text', () => {
+      const { container } = render(
+        <ChatBubble role="user" content="do /think" index={0} />,
+      );
+      const styled = container.querySelector(
+        '.font-semibold.text-\\[\\#7C2D12\\]',
+      );
+      expect(styled).not.toBeNull();
+      expect(styled!.textContent).toBe('/think');
+    });
+  });
+
   describe('Layout', () => {
     it('has max-width constraint (max-w-[80%])', () => {
       const { container } = render(
         <ChatBubble role="user" content="test" index={0} />,
       );
       expect(container.querySelector('.max-w-\\[80\\%\\]')).not.toBeNull();
+    });
+  });
+
+  describe('ThinkingBlock rendering', () => {
+    it('renders ThinkingBlock for AI message with thinkingContent', () => {
+      render(
+        <ChatBubble
+          role="assistant"
+          content="The answer is 42."
+          index={0}
+          thinkingContent="Let me reason about this..."
+        />,
+      );
+      expect(screen.getByTestId('thinking-block')).toBeInTheDocument();
+    });
+
+    it('does not render ThinkingBlock for AI message without thinkingContent', () => {
+      render(<ChatBubble role="assistant" content="Hello" index={0} />);
+      expect(screen.queryByTestId('thinking-block')).toBeNull();
+    });
+
+    it('does not render ThinkingBlock for user message even with thinkingContent', () => {
+      render(
+        <ChatBubble
+          role="user"
+          content="Hello"
+          index={0}
+          thinkingContent="Should not appear"
+        />,
+      );
+      expect(screen.queryByTestId('thinking-block')).toBeNull();
+    });
+
+    it('shows "Thinking..." state when isThinking is true', () => {
+      render(
+        <ChatBubble
+          role="assistant"
+          content=""
+          index={0}
+          thinkingContent="Reasoning in progress..."
+          isThinking={true}
+        />,
+      );
+      expect(screen.getByTestId('thinking-block')).toBeInTheDocument();
+      expect(screen.getByTestId('thinking-label')).toBeInTheDocument();
     });
   });
 

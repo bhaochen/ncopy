@@ -3,11 +3,65 @@ import { MarkdownRenderer } from './MarkdownRenderer';
 import { ErrorCard } from './ErrorCard';
 import { CopyButton } from './CopyButton';
 import { ImageThumbnails } from './ImageThumbnails';
+import { ThinkingBlock } from './ThinkingBlock';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { formatQuotedText } from '../utils/formatQuote';
 import { quote } from '../config';
-import { SCREEN_CAPTURE_PLACEHOLDER } from '../config/commands';
+import { COMMANDS, SCREEN_CAPTURE_PLACEHOLDER } from '../config/commands';
 import type { OllamaErrorKind } from '../hooks/useOllama';
+
+/**
+ * Renders user message content with slash commands styled distinctly.
+ * Only the FIRST occurrence of each command trigger is styled; duplicate
+ * triggers render as plain text (the first one is the active command).
+ */
+function renderUserContent(content: string): React.ReactNode {
+  const parts: React.ReactNode[] = [];
+  let remaining = content;
+  const styledCommands = new Set<string>();
+
+  while (remaining.length > 0) {
+    // Find the earliest command trigger in remaining text (skip already-styled ones)
+    let earliest = -1;
+    let matchedTrigger = '';
+    for (const cmd of COMMANDS) {
+      if (styledCommands.has(cmd.trigger)) continue;
+      const idx = remaining.indexOf(cmd.trigger);
+      if (idx !== -1 && (earliest === -1 || idx < earliest)) {
+        const before = idx === 0 || remaining[idx - 1] === ' ';
+        const after =
+          idx + cmd.trigger.length >= remaining.length ||
+          remaining[idx + cmd.trigger.length] === ' ';
+        if (before && after) {
+          earliest = idx;
+          matchedTrigger = cmd.trigger;
+        }
+      }
+    }
+
+    if (earliest === -1) {
+      parts.push(<span key={parts.length}>{remaining}</span>);
+      break;
+    }
+
+    // Text before the command
+    if (earliest > 0) {
+      parts.push(
+        <span key={parts.length}>{remaining.slice(0, earliest)}</span>,
+      );
+    }
+    // The command itself, styled (first occurrence only)
+    parts.push(
+      <span key={parts.length} className="font-semibold text-[#7C2D12]">
+        {matchedTrigger}
+      </span>,
+    );
+    styledCommands.add(matchedTrigger);
+    remaining = remaining.slice(earliest + matchedTrigger.length);
+  }
+
+  return <>{parts}</>;
+}
 
 interface ChatBubbleProps {
   /** The message role determines alignment and color treatment. */
@@ -22,6 +76,10 @@ interface ChatBubbleProps {
   isStreaming?: boolean;
   /** When set, renders an ErrorCard callout instead of markdown. */
   errorKind?: OllamaErrorKind;
+  /** Accumulated thinking/reasoning content from the model, if thinking mode was used. */
+  thinkingContent?: string;
+  /** Whether the model is currently in the thinking phase (streaming thinking tokens). */
+  isThinking?: boolean;
   /** Absolute file paths of images attached to this message, if any. */
   imagePaths?: string[];
   /** Called when the user clicks a thumbnail to preview it. */
@@ -67,6 +125,8 @@ export function ChatBubble({
   imagePaths,
   onImagePreview,
   errorKind,
+  thinkingContent,
+  isThinking,
 }: ChatBubbleProps) {
   const isUser = role === 'user';
 
@@ -112,7 +172,7 @@ export function ChatBubble({
             )}
             {content && (
               <span className="text-white/95 font-medium whitespace-pre-wrap">
-                {content}
+                {renderUserContent(content)}
               </span>
             )}
           </div>
@@ -126,6 +186,12 @@ export function ChatBubble({
         /* AI plain text — full width, no bubble chrome */
         <div className="flex flex-col w-full">
           <div className="text-sm leading-relaxed select-text py-1">
+            {thinkingContent && (
+              <ThinkingBlock
+                thinkingContent={thinkingContent}
+                isThinking={isThinking ?? false}
+              />
+            )}
             {errorKind ? (
               <ErrorCard kind={errorKind} message={content} />
             ) : (

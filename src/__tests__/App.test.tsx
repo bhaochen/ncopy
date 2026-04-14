@@ -2723,12 +2723,12 @@ describe('App', () => {
         'ask_ollama',
         expect.objectContaining({
           imagePaths: ['/tmp/screen.jpg'],
-          message: '',
+          message: '/screen',
         }),
       );
     });
 
-    it('strips the /screen trigger and sends the remaining text as message', async () => {
+    it('keeps the /screen trigger in the message sent to the backend', async () => {
       enableChannelCaptureWithResponses({
         capture_full_screen_command: '/tmp/screen.jpg',
       });
@@ -2753,14 +2753,16 @@ describe('App', () => {
       expect(invoke).toHaveBeenCalledWith(
         'ask_ollama',
         expect.objectContaining({
-          message: 'what is this error?',
+          message: '/screen what is this error?',
           imagePaths: ['/tmp/screen.jpg'],
         }),
       );
     });
 
-    it('does not invoke capture_full_screen_command when /screen is not at start', async () => {
-      enableChannelCapture();
+    it('detects /screen anywhere in the message, not just at start', async () => {
+      enableChannelCaptureWithResponses({
+        capture_full_screen_command: '/tmp/screen.jpg',
+      });
 
       render(<App />);
       await act(async () => {});
@@ -2779,10 +2781,13 @@ describe('App', () => {
 
       await act(async () => {});
 
-      expect(invoke).not.toHaveBeenCalledWith('capture_full_screen_command');
+      expect(invoke).toHaveBeenCalledWith('capture_full_screen_command');
       expect(invoke).toHaveBeenCalledWith(
         'ask_ollama',
-        expect.objectContaining({ message: 'hello /screen there' }),
+        expect.objectContaining({
+          message: 'hello /screen there',
+          imagePaths: ['/tmp/screen.jpg'],
+        }),
       );
     });
 
@@ -2951,7 +2956,7 @@ describe('App', () => {
       expect(invoke).toHaveBeenCalledWith(
         'ask_ollama',
         expect.objectContaining({
-          message: 'describe',
+          message: '/screen describe',
           imagePaths: ['/tmp/attached.jpg', '/tmp/screen.jpg'],
         }),
       );
@@ -2980,7 +2985,7 @@ describe('App', () => {
       expect(invoke).toHaveBeenCalledWith(
         'ask_ollama',
         expect.objectContaining({
-          message: 'explain',
+          message: '/screen explain',
           quotedText: 'some context',
           imagePaths: ['/tmp/screen.jpg'],
         }),
@@ -3021,7 +3026,7 @@ describe('App', () => {
       // After capture resolves: ask_ollama should be called
       expect(invoke).toHaveBeenCalledWith(
         'ask_ollama',
-        expect.objectContaining({ message: 'check this' }),
+        expect.objectContaining({ message: '/screen check this' }),
       );
     });
 
@@ -3135,6 +3140,211 @@ describe('App', () => {
 
       // ask_ollama must NOT be called since the user cancelled
       expect(invoke).not.toHaveBeenCalledWith('ask_ollama', expect.anything());
+    });
+  });
+
+  // ─── /think command ─────────────────────────────────────────────────────────
+
+  describe('/think command', () => {
+    it('sends think:true to ask_ollama and keeps /think prefix in message', async () => {
+      enableChannelCapture();
+
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
+      act(() => {
+        fireEvent.change(textarea, {
+          target: { value: '/think why is the sky blue?' },
+        });
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith(
+        'ask_ollama',
+        expect.objectContaining({
+          message: '/think why is the sky blue?',
+          think: true,
+        }),
+      );
+    });
+
+    it('does nothing when /think has no query and no images', async () => {
+      enableChannelCapture();
+
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
+      act(() => {
+        fireEvent.change(textarea, { target: { value: '/think' } });
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+
+      await act(async () => {});
+
+      expect(invoke).not.toHaveBeenCalledWith('ask_ollama', expect.anything());
+    });
+
+    it('detects /think anywhere in the message, not just at start', async () => {
+      enableChannelCapture();
+
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
+      act(() => {
+        fireEvent.change(textarea, {
+          target: { value: 'hello /think world' },
+        });
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith(
+        'ask_ollama',
+        expect.objectContaining({
+          message: 'hello /think world',
+          think: true,
+        }),
+      );
+    });
+
+    it('forwards selected context when /think is used with quoted text', async () => {
+      enableChannelCapture();
+
+      render(<App />);
+      await act(async () => {});
+      await showOverlay('some selected text');
+
+      const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
+      act(() => {
+        fireEvent.change(textarea, {
+          target: { value: '/think explain this code' },
+        });
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith(
+        'ask_ollama',
+        expect.objectContaining({
+          message: '/think explain this code',
+          quotedText: 'some selected text',
+          think: true,
+        }),
+      );
+    });
+
+    it('sends think:true with /think followed by only a space', async () => {
+      enableChannelCapture();
+
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
+      act(() => {
+        fireEvent.change(textarea, { target: { value: '/think ' } });
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+
+      await act(async () => {});
+
+      // "/think " with only a space after prefix, no actual query, no images => no submit
+      expect(invoke).not.toHaveBeenCalledWith('ask_ollama', expect.anything());
+    });
+  });
+
+  // ─── Multi-command ──────────────────────────────────────────────────────────
+
+  describe('Multi-command support', () => {
+    it('sends /screen /think with both screen capture and think:true', async () => {
+      enableChannelCaptureWithResponses({
+        capture_full_screen_command: '/tmp/screen.jpg',
+      });
+
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
+      act(() => {
+        fireEvent.change(textarea, {
+          target: { value: '/screen /think explain this' },
+        });
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith('capture_full_screen_command');
+      expect(invoke).toHaveBeenCalledWith(
+        'ask_ollama',
+        expect.objectContaining({
+          message: '/screen /think explain this',
+          imagePaths: ['/tmp/screen.jpg'],
+          think: true,
+        }),
+      );
+    });
+
+    it('sends /think /screen with both screen capture and think:true', async () => {
+      enableChannelCaptureWithResponses({
+        capture_full_screen_command: '/tmp/screen.jpg',
+      });
+
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = screen.getByPlaceholderText('Ask Thuki anything...');
+      act(() => {
+        fireEvent.change(textarea, {
+          target: { value: '/think /screen explain this' },
+        });
+      });
+
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith('capture_full_screen_command');
+      expect(invoke).toHaveBeenCalledWith(
+        'ask_ollama',
+        expect.objectContaining({
+          message: '/think /screen explain this',
+          imagePaths: ['/tmp/screen.jpg'],
+          think: true,
+        }),
+      );
     });
   });
 

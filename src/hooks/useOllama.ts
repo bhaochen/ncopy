@@ -18,6 +18,8 @@ export interface Message {
   imagePaths?: string[];
   /** Present on assistant messages that represent an Ollama error callout. */
   errorKind?: OllamaErrorKind;
+  /** Accumulated thinking/reasoning content from the model, if thinking mode was used. */
+  thinkingContent?: string;
 }
 
 /**
@@ -25,6 +27,7 @@ export interface Message {
  */
 export type StreamChunk =
   | { type: 'Token'; data: string }
+  | { type: 'ThinkingToken'; data: string }
   | { type: 'Done' }
   | { type: 'Cancelled' }
   | { type: 'Error'; data: { kind: OllamaErrorKind; message: string } };
@@ -61,6 +64,7 @@ export function useOllama(
       displayContent: string,
       quotedText?: string,
       imagePaths?: string[],
+      think?: boolean,
     ) => {
       if (
         (!displayContent.trim() && (!imagePaths || imagePaths.length === 0)) ||
@@ -89,9 +93,19 @@ export function useOllama(
 
       const channel = new Channel<StreamChunk>();
       let currentContent = '';
+      let currentThinkingContent = '';
 
       channel.onmessage = (chunk) => {
-        if (chunk.type === 'Token') {
+        if (chunk.type === 'ThinkingToken') {
+          currentThinkingContent += chunk.data;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? { ...m, thinkingContent: currentThinkingContent }
+                : m,
+            ),
+          );
+        } else if (chunk.type === 'Token') {
           currentContent += chunk.data;
           setMessages((prev) =>
             prev.map((m) =>
@@ -105,10 +119,11 @@ export function useOllama(
           onTurnComplete?.(userMsg, {
             ...assistantMsg,
             content: currentContent,
+            thinkingContent: currentThinkingContent || undefined,
           });
         } else if (chunk.type === 'Cancelled') {
           // Remove the empty assistant placeholder if nothing was generated.
-          if (!currentContent) {
+          if (!currentContent && !currentThinkingContent) {
             setMessages((prev) => prev.filter((m) => m.id !== assistantId));
           }
           setIsGenerating(false);
@@ -134,6 +149,7 @@ export function useOllama(
           message: displayContent,
           quotedText: quotedText ?? null,
           imagePaths: imagePaths && imagePaths.length > 0 ? imagePaths : null,
+          think: think ?? false,
           onEvent: channel,
         });
       } catch {

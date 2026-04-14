@@ -22,7 +22,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { ImagePreviewModal } from './components/ImagePreviewModal';
 import type { AttachedImage } from './types/image';
 import { quote } from './config';
-import { SCREEN_CAPTURE_PLACEHOLDER } from './config/commands';
+import { COMMANDS, SCREEN_CAPTURE_PLACEHOLDER } from './config/commands';
 import './App.css';
 
 /** Fallback model name used before get_model_config resolves at startup. */
@@ -48,6 +48,30 @@ const MAX_CHAT_WINDOW_HEIGHT = 600 + CONTAINER_VERTICAL_PADDING;
 
 /** Must match `OVERLAY_LOGICAL_HEIGHT_COLLAPSED` in `src-tauri/src/lib.rs`. */
 const COLLAPSED_WINDOW_HEIGHT = 80;
+
+/**
+ * Parses a message to detect all valid slash commands present as whole words.
+ * Derives detectable commands from the COMMANDS registry so adding a command
+ * to the registry is sufficient (no hardcoded trigger strings here).
+ * Also returns the message with command triggers stripped for the LLM.
+ */
+export function parseCommands(text: string): {
+  found: Set<string>;
+  strippedMessage: string;
+} {
+  const words = text.trim().split(/\s+/);
+  const triggerSet = new Set(COMMANDS.map((c) => c.trigger));
+  const found = new Set<string>();
+  const remaining: string[] = [];
+  for (const word of words) {
+    if (triggerSet.has(word)) {
+      found.add(word);
+    } else {
+      remaining.push(word);
+    }
+  }
+  return { found, strippedMessage: remaining.join(' ') };
+}
 
 type OverlayVisibilityPayload =
   | {
@@ -140,6 +164,7 @@ function App() {
   const pendingSubmitRef = useRef<{
     query: string;
     context: string | undefined;
+    think: boolean;
   } | null>(null);
   /** True while waiting for images to finish processing before a deferred
    *  submit. Drives the "waiting" UI state in the ask bar. */
@@ -749,12 +774,12 @@ function App() {
 
   /** Fires the actual ask() call and cleans up attached images + input. */
   const executeSubmit = useCallback(
-    (submitQuery: string, context: string | undefined) => {
+    (submitQuery: string, context: string | undefined, think?: boolean) => {
       const readyPaths = attachedImages
         .filter((img) => img.filePath !== null)
         .map((img) => img.filePath as string);
       const images = readyPaths.length > 0 ? readyPaths : undefined;
-      ask(submitQuery, context, images);
+      ask(submitQuery, context, images, think);
       setSelectedContext(null);
       setQuery('');
       for (const img of attachedImages) {
@@ -773,96 +798,95 @@ function App() {
    * On success, merges the screenshot path with any manually attached
    * images and calls ask(). On error, restores the query so no input is lost.
    */
-  const handleScreenSubmit = useCallback(async () => {
-    // eslint-disable-next-line no-control-regex
-    const CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f]/g;
-    const sanitized = selectedContext
-      ?.replace(CONTROL_CHARS, '')
-      .slice(0, quote.maxContextLength);
-    const context = sanitized?.trim() ? sanitized : undefined;
+  const handleScreenSubmit = useCallback(
+    async (fullQuery: string, think?: boolean) => {
+      // eslint-disable-next-line no-control-regex
+      const CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f]/g;
+      const sanitized = selectedContext
+        ?.replace(CONTROL_CHARS, '')
+        .slice(0, quote.maxContextLength);
+      const context = sanitized?.trim() ? sanitized : undefined;
 
-    const trimmed = query.trimStart();
-    const cleanQuery = trimmed.slice('/screen'.length).trimStart();
+      // Snapshot display paths for the pending bubble: use resolved file paths
+      // for already-processed images, blob URLs for still-processing ones.
+      const existingDisplayPaths = attachedImages.map(
+        (img) => img.filePath ?? img.blobUrl,
+      );
 
-    // Snapshot display paths for the pending bubble: use resolved file paths
-    // for already-processed images, blob URLs for still-processing ones.
-    const existingDisplayPaths = attachedImages.map(
-      (img) => img.filePath ?? img.blobUrl,
-    );
+      // Store the original input so handleCancel can restore it if the user
+      // aborts the capture before it resolves.
+      screenCaptureInputSnapshotRef.current = {
+        query: fullQuery,
+        context,
+      };
 
-    // Store the original input so handleCancel can restore it if the user
-    // aborts the capture before it resolves.
-    const restoredQuery = `/screen${cleanQuery ? ` ${cleanQuery}` : ''}`;
-    screenCaptureInputSnapshotRef.current = { query: restoredQuery, context };
+      // Immediately show the user's message in chat with a loading placeholder
+      // for the screenshot. This prevents double-submit spam and gives instant
+      // feedback that the capture is in progress.
+      screenCapturePendingRef.current = true;
+      setIsSubmitPending(true);
+      setPendingUserMessage({
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: fullQuery,
+        quotedText: context,
+        imagePaths: [...existingDisplayPaths, SCREEN_CAPTURE_PLACEHOLDER],
+      });
+      setQuery('');
+      setSelectedContext(null);
+      /* v8 ignore start -- inputRef always set when overlay is visible */
+      if (inputRef.current) inputRef.current.style.height = 'auto';
+      /* v8 ignore stop */
 
-    // Immediately show the user's message in chat with a loading placeholder
-    // for the screenshot. This prevents double-submit spam and gives instant
-    // feedback that the capture is in progress.
-    screenCapturePendingRef.current = true;
-    setIsSubmitPending(true);
-    setPendingUserMessage({
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: cleanQuery,
-      quotedText: context,
-      imagePaths: [...existingDisplayPaths, SCREEN_CAPTURE_PLACEHOLDER],
-    });
-    setQuery('');
-    setSelectedContext(null);
-    /* v8 ignore start -- inputRef always set when overlay is visible */
-    if (inputRef.current) inputRef.current.style.height = 'auto';
-    /* v8 ignore stop */
+      let screenshotPath: string;
+      try {
+        screenshotPath = await invoke<string>('capture_full_screen_command');
+      } catch (e) {
+        screenCapturePendingRef.current = false;
+        screenCaptureInputSnapshotRef.current = null;
+        // Capture failed: restore input state so the user can retry or edit.
+        setIsSubmitPending(false);
+        setPendingUserMessage(null);
+        setQuery(fullQuery);
+        setSelectedContext(context ?? null);
+        // Surface the Rust error directly: the backend already provides
+        // descriptive messages (permission prompts, null-image diagnostics, etc.).
+        // Tauri v2 rejects with the Err(String) value as a plain string.
+        setCaptureError(
+          typeof e === 'string'
+            ? e
+            : e instanceof Error
+              ? e.message
+              : String(e),
+        );
+        return;
+      }
 
-    let screenshotPath: string;
-    try {
-      screenshotPath = await invoke<string>('capture_full_screen_command');
-    } catch (e) {
+      // Check for mid-flight cancellation before touching any state.
+      // handleCancel sets screenCapturePendingRef.current = false as a signal.
+      const wasCancelled = !screenCapturePendingRef.current;
       screenCapturePendingRef.current = false;
       screenCaptureInputSnapshotRef.current = null;
-      // Capture failed: restore input state so the user can retry or edit.
+      if (wasCancelled) return;
+
+      // Capture succeeded: finalize the submit.
+      setCaptureError(null);
       setIsSubmitPending(false);
       setPendingUserMessage(null);
-      setQuery(restoredQuery);
-      setSelectedContext(context ?? null);
-      // Surface the Rust error directly: the backend already provides
-      // descriptive messages (permission prompts, null-image diagnostics, etc.).
-      // Tauri v2 rejects with the Err(String) value as a plain string.
-      setCaptureError(
-        typeof e === 'string' ? e : e instanceof Error ? e.message : String(e),
-      );
-      return;
-    }
 
-    // Check for mid-flight cancellation before touching any state.
-    // handleCancel sets screenCapturePendingRef.current = false as a signal.
-    const wasCancelled = !screenCapturePendingRef.current;
-    screenCapturePendingRef.current = false;
-    screenCaptureInputSnapshotRef.current = null;
-    if (wasCancelled) return;
+      const readyPaths = attachedImages
+        .filter((img) => img.filePath !== null)
+        .map((img) => img.filePath as string);
+      readyPaths.push(screenshotPath);
 
-    // Capture succeeded: finalize the submit.
-    setCaptureError(null);
-    setIsSubmitPending(false);
-    setPendingUserMessage(null);
-
-    const readyPaths = attachedImages
-      .filter((img) => img.filePath !== null)
-      .map((img) => img.filePath as string);
-    readyPaths.push(screenshotPath);
-
-    ask(cleanQuery, context, readyPaths);
-    for (const img of attachedImages) {
-      URL.revokeObjectURL(img.blobUrl);
-    }
-    setAttachedImages([]);
-  }, [
-    query,
-    selectedContext,
-    attachedImages,
-    ask,
-    setSelectedContext,
-    setCaptureError,
-  ]);
+      ask(fullQuery, context, readyPaths, think);
+      for (const img of attachedImages) {
+        URL.revokeObjectURL(img.blobUrl);
+      }
+      setAttachedImages([]);
+    },
+    [selectedContext, attachedImages, ask, setSelectedContext, setCaptureError],
+  );
 
   const handleSubmit = useCallback(() => {
     if (
@@ -874,16 +898,18 @@ function App() {
     // Clear any stale capture error from a previous attempt.
     setCaptureError(null);
 
-    // Detect /screen command at the very start of the message.
-    const trimmedQuery = query.trimStart();
-    const isScreenCommand =
-      trimmedQuery.startsWith('/screen') &&
-      (trimmedQuery.length === '/screen'.length ||
-        trimmedQuery['/screen'.length] === ' ');
+    // Parse all valid commands from anywhere in the message.
+    const trimmedQuery = query.trim();
+    const { found, strippedMessage } = parseCommands(trimmedQuery);
+    const hasScreen = found.has('/screen');
+    const hasThink = found.has('/think');
 
-    if (isScreenCommand) {
+    // Nothing to send if the message is only commands with no content or images.
+    if (!strippedMessage && attachedImages.length === 0 && !hasScreen) return;
+
+    if (hasScreen) {
       // Fire-and-forget: the async path handles cleanup and ask() invocation.
-      void handleScreenSubmit();
+      void handleScreenSubmit(trimmedQuery, hasThink);
       return;
     }
 
@@ -901,13 +927,17 @@ function App() {
       (img) => img.filePath === null,
     );
     if (!hasPendingImages) {
-      executeSubmit(query, context);
+      executeSubmit(trimmedQuery, context, hasThink || undefined);
       return;
     }
 
     // Images are still processing — store the intent and wait. The effect
     // below will fire the actual ask() once every image has resolved.
-    pendingSubmitRef.current = { query, context };
+    pendingSubmitRef.current = {
+      query: trimmedQuery,
+      context,
+      think: hasThink,
+    };
     setIsSubmitPending(true);
 
     // Show the user's message immediately in the chat view. Use file paths
@@ -916,7 +946,7 @@ function App() {
     setPendingUserMessage({
       id: crypto.randomUUID(),
       role: 'user',
-      content: query,
+      content: trimmedQuery,
       quotedText: context,
       imagePaths: attachedImages.map((img) => img.filePath ?? img.blobUrl),
     });
@@ -958,14 +988,16 @@ function App() {
     const allReady = attachedImages.every((img) => img.filePath !== null);
     if (!allReady) return;
 
-    const { query: pendingQuery, context } = pendingSubmitRef.current;
+    const { query: pendingQuery, context, think } = pendingSubmitRef.current;
     pendingSubmitRef.current = null;
     setIsSubmitPending(false);
     // Clear the preview message — ask() will add the real one with file paths.
     setPendingUserMessage(null);
 
     const images = attachedImages.map((img) => img.filePath as string);
-    void ask(pendingQuery, context, images);
+    void ask(pendingQuery, context, images, think || undefined);
+    // Note: the display content in the pending bubble (set in handleSubmit)
+    // already includes command triggers for visibility in the chat.
     setSelectedContext(null);
     for (const img of attachedImages) {
       URL.revokeObjectURL(img.blobUrl);
