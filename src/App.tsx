@@ -23,7 +23,11 @@ import { ImagePreviewModal } from './components/ImagePreviewModal';
 import type { AttachedImage } from './types/image';
 import { MAX_IMAGE_SIZE_BYTES } from './types/image';
 import { quote } from './config';
-import { COMMANDS, SCREEN_CAPTURE_PLACEHOLDER } from './config/commands';
+import {
+  COMMANDS,
+  SCREEN_CAPTURE_PLACEHOLDER,
+  buildPrompt,
+} from './config/commands';
 import './App.css';
 
 /** Fallback model name used before get_model_config resolves at startup. */
@@ -167,11 +171,14 @@ function App() {
 
   /** When the user submits while images are still processing, the submit
    *  intent is stored here. The effect below watches `attachedImages` and
-   *  fires the actual `ask()` once every image has a resolved `filePath`. */
+   *  fires the actual `ask()` once every image has a resolved `filePath`.
+   *  Also stores `promptOverride` when the deferred submit originates from
+   *  a utility command, and `context` for any quoted selected text. */
   const pendingSubmitRef = useRef<{
     query: string;
     context: string | undefined;
     think: boolean;
+    promptOverride?: string;
   } | null>(null);
   /** True while waiting for images to finish processing before a deferred
    *  submit. Drives the "waiting" UI state in the ask bar. */
@@ -969,12 +976,95 @@ function App() {
     const hasScreen = found.has('/screen');
     const hasThink = found.has('/think');
 
+    // Check for utility commands with prompt templates.
+    const utilityTrigger = Array.from(found).find((t) => {
+      const cmd = COMMANDS.find((c) => c.trigger === t);
+      return !!cmd?.promptTemplate;
+    });
+
     // Nothing to send if the message is only commands with no content or images.
-    if (!strippedMessage && attachedImages.length === 0 && !hasScreen) return;
+    // Exception: a utility command or /think with pre-filled selected context is
+    // valid even if no additional text was typed after the trigger.
+    if (
+      !strippedMessage &&
+      attachedImages.length === 0 &&
+      !hasScreen &&
+      !((utilityTrigger || hasThink) && selectedContext?.trim())
+    )
+      return;
 
     if (hasScreen) {
       // Fire-and-forget: the async path handles cleanup and ask() invocation.
       void handleScreenSubmit(trimmedQuery, hasThink);
+      return;
+    }
+
+    if (utilityTrigger) {
+      // Sanitize selectedContext before passing to buildPrompt so that control
+      // characters from a hostile host-app selection cannot reach the model prompt.
+      // eslint-disable-next-line no-control-regex
+      const CONTROL_CHARS = /[\x00-\x08\x0b\x0c\x0e-\x1f]/g;
+      const sanitized = selectedContext
+        ?.replace(CONTROL_CHARS, '')
+        .slice(0, quote.maxContextLength);
+      const context = sanitized?.trim() ? sanitized : undefined;
+
+      const composedPrompt = buildPrompt(
+        utilityTrigger,
+        strippedMessage,
+        context,
+      );
+      if (!composedPrompt) return; // No input text available.
+
+      // Show the full original query (including command trigger) in the chat
+      // bubble, matching the behaviour of /screen and the normal submit path.
+      const displayText = trimmedQuery;
+
+      const hasPendingImages = attachedImages.some(
+        (img) => img.filePath === null,
+      );
+      if (!hasPendingImages) {
+        const readyPaths = attachedImages
+          .filter((img) => img.filePath !== null)
+          .map((img) => img.filePath as string);
+        const images = readyPaths.length > 0 ? readyPaths : undefined;
+        ask(
+          displayText,
+          context,
+          images,
+          hasThink || undefined,
+          composedPrompt,
+        );
+        setSelectedContext(null);
+        setQuery('');
+        for (const img of attachedImages) {
+          URL.revokeObjectURL(img.blobUrl);
+        }
+        setAttachedImages([]);
+        /* v8 ignore next */
+        inputRef.current!.style.height = 'auto';
+        return;
+      }
+
+      // Images still processing: store intent for deferred submit.
+      pendingSubmitRef.current = {
+        query: displayText,
+        context,
+        think: hasThink,
+        promptOverride: composedPrompt,
+      };
+      setIsSubmitPending(true);
+      setPendingUserMessage({
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: displayText,
+        quotedText: context,
+        imagePaths: attachedImages.map((img) => img.filePath ?? img.blobUrl),
+      });
+      setQuery('');
+      setSelectedContext(null);
+      /* v8 ignore next */
+      inputRef.current!.style.height = 'auto';
       return;
     }
 
@@ -1053,14 +1143,19 @@ function App() {
     const allReady = attachedImages.every((img) => img.filePath !== null);
     if (!allReady) return;
 
-    const { query: pendingQuery, context, think } = pendingSubmitRef.current;
+    const {
+      query: pendingQuery,
+      context,
+      think,
+      promptOverride,
+    } = pendingSubmitRef.current;
     pendingSubmitRef.current = null;
     setIsSubmitPending(false);
     // Clear the preview message — ask() will add the real one with file paths.
     setPendingUserMessage(null);
 
     const images = attachedImages.map((img) => img.filePath as string);
-    void ask(pendingQuery, context, images, think || undefined);
+    void ask(pendingQuery, context, images, think || undefined, promptOverride);
     // Note: the display content in the pending bubble (set in handleSubmit)
     // already includes command triggers for visibility in the chat.
     setSelectedContext(null);

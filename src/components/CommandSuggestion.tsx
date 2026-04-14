@@ -43,10 +43,227 @@ const SCREEN_ICON = (
   </svg>
 );
 
-/** Returns the icon for a given command trigger. Currently all commands use SCREEN_ICON. */
+/** Brain icon for /think command. */
+const THINK_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <path
+      d="M8 13C7 13 5.5 12.5 4.5 11.5C3.5 10.5 2.5 9.5 2.5 7.5C2.5 5.5 3.5 4 5 3C6 2.5 7 2.5 8 3"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    />
+    <path
+      d="M8 13C9 13 10.5 12.5 11.5 11.5C12.5 10.5 13.5 9.5 13.5 7.5C13.5 5.5 12.5 4 11 3C10 2.5 9 2.5 8 3"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    />
+    <path
+      d="M8 3.5V12.5"
+      stroke="currentColor"
+      strokeWidth="1"
+      strokeLinecap="round"
+    />
+    <path
+      d="M5 6.5C5.5 6 6 6 6.5 6.5"
+      stroke="currentColor"
+      strokeWidth="1"
+      strokeLinecap="round"
+    />
+    <path
+      d="M4.5 9.5C5 9 6 9 6.5 9.5"
+      stroke="currentColor"
+      strokeWidth="1"
+      strokeLinecap="round"
+    />
+    <path
+      d="M11 6.5C10.5 6 10 6 9.5 6.5"
+      stroke="currentColor"
+      strokeWidth="1"
+      strokeLinecap="round"
+    />
+    <path
+      d="M11.5 9.5C11 9 10 9 9.5 9.5"
+      stroke="currentColor"
+      strokeWidth="1"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+/** Globe icon for /translate command. */
+const TRANSLATE_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" />
+    <ellipse
+      cx="8"
+      cy="8"
+      rx="3"
+      ry="6.5"
+      stroke="currentColor"
+      strokeWidth="1.2"
+    />
+    <path d="M1.5 8h13" stroke="currentColor" strokeWidth="1.2" />
+  </svg>
+);
+
+/** Pencil icon for /rewrite command. */
+const REWRITE_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <path
+      d="M11 2.5l2.5 2.5L5.5 13H3v-2.5L11 2.5z"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+/** Lines icon for /tldr command. */
+const TLDR_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <path
+      d="M3 3h10M3 7h10M3 11h6"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+/** Sparkle icon for /refine command. */
+const REFINE_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <path
+      d="M8 1v3M8 12v3M1 8h3M12 8h3M3.5 3.5l2 2M10.5 10.5l2 2M12.5 3.5l-2 2M5.5 10.5l-2 2"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+/** Bullet list icon for /bullets command. */
+const BULLETS_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <circle cx="3" cy="4" r="1.2" fill="currentColor" />
+    <circle cx="3" cy="8" r="1.2" fill="currentColor" />
+    <circle cx="3" cy="12" r="1.2" fill="currentColor" />
+    <path
+      d="M6.5 4h7M6.5 8h7M6.5 12h7"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+/** Checkbox icon for /todos command. */
+const ACTION_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <rect
+      x="1.5"
+      y="2"
+      width="5"
+      height="5"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
+    <path
+      d="M3 4.5L4 5.5L6 3"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <rect
+      x="1.5"
+      y="9"
+      width="5"
+      height="5"
+      rx="1"
+      stroke="currentColor"
+      strokeWidth="1.3"
+    />
+    <path
+      d="M9 4.5h5.5M9 11.5h5.5"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+/** Returns the icon for a given command trigger. */
 function iconForTrigger(trigger: string): React.ReactNode {
   switch (trigger) {
     case '/screen':
+      return SCREEN_ICON;
+    case '/think':
+      return THINK_ICON;
+    case '/translate':
+      return TRANSLATE_ICON;
+    case '/rewrite':
+      return REWRITE_ICON;
+    case '/tldr':
+      return TLDR_ICON;
+    case '/refine':
+      return REFINE_ICON;
+    case '/bullets':
+      return BULLETS_ICON;
+    case '/todos':
+      return ACTION_ICON;
     default:
       return SCREEN_ICON;
   }
@@ -91,7 +308,7 @@ export function CommandSuggestion({
           No commands found
         </div>
       ) : (
-        <ul className="pb-1" role="presentation">
+        <ul className="pb-1 max-h-[112px] overflow-y-auto" role="presentation">
           {commands.map((cmd, index) => {
             const isHighlighted = index === highlightedIndex;
             return (
