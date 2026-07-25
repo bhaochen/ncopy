@@ -72,9 +72,12 @@ const mockWindow = {
    */
   onFocusChanged: vi.fn(async (cb: FocusListener) => {
     focusListeners.add(cb);
-    return () => {
+    return async () => {
       focusListeners.delete(cb);
     };
+  }),
+  onResized: vi.fn(async () => {
+    return async () => {};
   }),
 };
 

@@ -1205,15 +1205,37 @@ function App() {
    */
   const overlayWidthRef = useRef(config.window.overlayWidth);
 
-  // Use the available screen height as the effective cap so the chat fills
-  // the window. Fall back to the config value when screen info is unavailable
-  // (jsdom / headless test environment).
-  const screenMax = window.screen.availHeight - CONTAINER_VERTICAL_PADDING - SCREEN_EDGE_MARGIN;
-  const effectiveMaxChatHeight =
-    window.screen.availHeight > 0 && screenMax > 0
-      ? screenMax
-      : config.window.maxChatHeight;
-  const maxChatHeightRef = useRef(effectiveMaxChatHeight);
+  // Reactive window-height cap so the chat fills the current window even when
+  // the user resizes it manually (e.g. tiled/floating WM on Linux).
+  const [windowContentHeight, setWindowContentHeight] = useState(
+    window.screen.availHeight > 0
+      ? window.screen.availHeight - CONTAINER_VERTICAL_PADDING - SCREEN_EDGE_MARGIN
+      : config.window.maxChatHeight,
+  );
+
+  // Keep maxChatHeightRef in sync so the upward-morph and restore paths see
+  // the current cap. This ref is consumed by effects that must not re-run when
+  // the cap changes (they read ref.current inside their own listener/poll).
+  const maxChatHeightRef = useRef(windowContentHeight);
+
+  useEffect(() => {
+    const win = getCurrentWindow();
+    if (!win.onResized) return;
+    const unlisten = win.onResized(({ payload: size }) => {
+      const h = size.height - CONTAINER_VERTICAL_PADDING - SCREEN_EDGE_MARGIN;
+      if (h > 0) {
+        setWindowContentHeight(h);
+        maxChatHeightRef.current = h;
+        const node = morphingContainerNodeRef.current;
+        if (node) {
+          node.style.maxHeight = `${h}px`;
+        }
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   /**
    * True on any render where a borrowing surface (onboarding or the safe-mode
@@ -1232,7 +1254,7 @@ function App() {
 
   useEffect(() => {
     overlayWidthRef.current = config.window.overlayWidth;
-    maxChatHeightRef.current = effectiveMaxChatHeight;
+    maxChatHeightRef.current = windowContentHeight;
     /* v8 ignore start -- requires real Tauri webview to setSize */
     // why: onboarding and the safe-mode recovery card (issue #296) replace
     // this whole render tree and own their own window sizing via
@@ -4361,7 +4383,7 @@ function App() {
                           style={{
                             transition:
                               'height 0.25s cubic-bezier(0.16, 1, 0.3, 1), min-height 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-                            maxHeight: `${effectiveMaxChatHeight}px`,
+                            maxHeight: `${windowContentHeight}px`,
                           }}
                           className="morphing-container relative flex flex-col overflow-hidden"
                         >
