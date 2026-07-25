@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ImageSearchHit } from '../types/search';
 import styles from './ImageGallery.module.css';
 
@@ -9,6 +9,13 @@ interface ImageGalleryProps {
 
 export function ImageGallery({ hits }: ImageGalleryProps) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    const el = trackRef.current;
+    if (!el) return;
+    el.scrollBy({ left: e.deltaY, behavior: 'instant' });
+  }, []);
 
   const openPreview = useCallback((index: number) => {
     setPreviewIndex(index);
@@ -43,7 +50,7 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
 
   return (
     <div className={styles.wrapper}>
-      <div className={styles.track}>
+      <div className={styles.track} ref={trackRef} onWheel={onWheel}>
         {hits.map((hit, i) => (
           <button
             key={hit.img_src}
