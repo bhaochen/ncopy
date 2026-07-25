@@ -19,7 +19,7 @@ import {
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { useModel } from './hooks/useModel';
 import type { Message, RetrySnapshot } from './hooks/useModel';
-import type { ImageSearchResult } from './types/search';
+import type { ImageSearchResult, SearchResultPreview } from './types/search';
 import { useConversationHistory } from './hooks/useConversationHistory';
 import { useModelSelection } from './hooks/useModelSelection';
 import { useModelCapabilities } from './hooks/useModelCapabilities';
@@ -867,25 +867,31 @@ function App() {
           );
           return;
         }
-        // Pass hits as structured data (ImageGallery) + minimal prompt for
-        // context. The gallery is rendered by the frontend above the text;
-        // the model provides commentary about the subject.
-        const sources = result.hits
+        // Pass hits as structured data (ImageGallery) + source chips + minimal
+        // prompt for context. The gallery is rendered by the frontend above the
+        // text; the model provides commentary about the subject.
+        const uniqueSources = result.hits
           .map((h) => h.source)
           .filter((s, i, a) => a.indexOf(s) === i)
           .join(', ');
+        const searchSrcs: SearchResultPreview[] = result.hits.map((h) => ({
+          title: h.title,
+          url: h.url,
+          attribution: h.source,
+        }));
         ask(
           displayContent,
           quotedText,
           undefined,
           undefined,
-          `Images matching "${query}" have been displayed above in a gallery (${result.hits.length} results from ${sources}). The user can see them already. Provide context about the subject or answer any related questions. Do not claim you cannot see images — they are displayed by the UI.`,
+          `Images matching "${query}" have been displayed above in a gallery (${result.hits.length} results from ${uniqueSources}). Provide context about the subject or answer any related questions. Do not claim you cannot see images — they are displayed by the UI.`,
           undefined,
           undefined,
           undefined,
           undefined,
           undefined,
           result.hits.slice(0, 30),
+          searchSrcs,
         );
       } catch (e) {
         console.error('Image search failed:', e);

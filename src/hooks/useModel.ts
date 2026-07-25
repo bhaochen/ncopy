@@ -443,6 +443,9 @@ export function useModel(
       preSeedContent?: string,
       /** Image search hits to render as a gallery in the assistant message. */
       imageSearchHits?: ImageSearchHit[],
+      /** Pre-populated search sources (e.g. from image search results). When
+       *  the backend emits real SearchSources chunks they override this. */
+      searchSources?: SearchResultPreview[],
     ) => {
       if (!displayContent.trim() && (!imagePaths || imagePaths.length === 0)) {
         return;
@@ -486,6 +489,7 @@ export function useModel(
         fromThink: think ? true : undefined,
         // Force-search turns own the Variant B progress chrome immediately
         fromSearch: forceSearch ? true : undefined,
+        searchSources,
         imageSearchHits,
         replaceCommand,
         modelName: resolvedModel ?? undefined,
@@ -839,6 +843,7 @@ export function useModel(
       slashCommand?: string,
       preSeedContent?: string,
       imageSearchHits?: ImageSearchHit[],
+      searchSources?: SearchResultPreview[],
     ) =>
       runChatTurn(
         displayContent,
@@ -854,6 +859,7 @@ export function useModel(
         slashCommand,
         preSeedContent,
         imageSearchHits,
+        searchSources,
       ),
     [runChatTurn],
   );
