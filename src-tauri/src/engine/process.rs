@@ -129,7 +129,8 @@ pub struct TokioEngineProcess {
 }
 
 /// Pure: the `llama-server` command line for one spawn:
-/// `-m <model> [--mmproj <p>] --ctx-size <n> --host 127.0.0.1 --port <p>
+/// `-m <model> [--mmproj <p>] --flash-attn 1 --n-gpu-layers 999
+/// --ctx-size <n> --host 127.0.0.1 --port <p>
 /// --no-webui --parallel 1 --cache-prompt --cache-idle-slots --cache-ram <mib>`.
 fn llama_server_args(args: &SpawnArgs) -> Vec<std::ffi::OsString> {
     let mut argv: Vec<std::ffi::OsString> = vec!["-m".into(), args.model_path.clone().into()];
@@ -137,6 +138,14 @@ fn llama_server_args(args: &SpawnArgs) -> Vec<std::ffi::OsString> {
         argv.push("--mmproj".into());
         argv.push(mmproj.clone().into());
     }
+    // Flash attention reduces KV cache memory ~2-3×, critical for large
+    // models on memory-constrained systems. Some llama-server versions
+    // require an explicit value argument (`--flash-attn 1`).
+    argv.push("--flash-attn".into());
+    argv.push("1".into());
+    // Offload all layers to GPU VRAM when a GPU is available.
+    argv.push("--n-gpu-layers".into());
+    argv.push("999".into());
     argv.push("--ctx-size".into());
     argv.push(args.num_ctx.to_string().into());
     argv.push("--host".into());
@@ -378,6 +387,10 @@ mod tests {
             vec![
                 "-m",
                 "/models/a.gguf",
+                "--flash-attn",
+                "1",
+                "--n-gpu-layers",
+                "999",
                 "--ctx-size",
                 "8192",
                 "--host",
@@ -480,6 +493,10 @@ mod tests {
                 "/models/a.gguf",
                 "--mmproj",
                 "/models/a.mmproj.gguf",
+                "--flash-attn",
+                "1",
+                "--n-gpu-layers",
+                "999",
                 "--ctx-size",
                 "8192",
                 "--host",
