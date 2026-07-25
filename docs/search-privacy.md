@@ -8,12 +8,14 @@ When search runs, Thuki sends the query **directly from your Mac** to one or mor
 
 1. [DuckDuckGo](https://duckduckgo.com/) (HTML search results)
 2. [Mojeek](https://www.mojeek.com/) (search results)
-3. [Open-Meteo](https://open-meteo.com/) (weather)
-4. [Google News RSS](https://news.google.com/) (headlines)
-5. [Wikipedia](https://www.wikipedia.org/) (definitions and stable facts)
-6. [ESPN public scoreboard API](https://www.espn.com/) (live scores and schedules; unofficial frontend API)
+3. [SearXNG](https://docs.searxng.org/) (self-hosted privacy search aggregator — queries only leave your network if you configure SearXNG to use remote upstream engines)
+4. [Tavily](https://tavily.com/) (keyed REST search API for LLM retrieval)
+5. [Open-Meteo](https://open-meteo.com/) (weather)
+6. [Google News RSS](https://news.google.com/) (headlines)
+7. [Wikipedia](https://www.wikipedia.org/) (definitions and stable facts)
+8. [ESPN public scoreboard API](https://www.espn.com/) (live scores and schedules; unofficial frontend API)
 
-Which services are contacted depends on the question (for example weather uses Open-Meteo; sports scores use ESPN; general web questions use DuckDuckGo and Mojeek).
+Which services are contacted depends on the question (for example weather uses Open-Meteo; sports scores use ESPN; general web questions race DuckDuckGo, Mojeek, SearXNG, and Tavily). SearXNG is fully self-hosted by default (no query leaves your network unless you configure it to use remote upstream engines). Tavily requires a `TAVILY_API_KEY` environment variable set before starting Thuki.
 
 ## Thuki has no servers for search
 
@@ -29,6 +31,8 @@ Read each service’s own policy for how they handle requests from your network:
 | :------ | :--------------- |
 | DuckDuckGo | [https://duckduckgo.com/privacy](https://duckduckgo.com/privacy) |
 | Mojeek | [https://www.mojeek.com/privacy](https://www.mojeek.com/privacy) |
+| SearXNG | Self-hosted; no data leaves your network unless you configure upstream engines. See [docs.searxng.org](https://docs.searxng.org/) |
+| Tavily | [https://tavily.com/privacy](https://tavily.com/privacy) |
 | Open-Meteo | [https://open-meteo.com/en/terms](https://open-meteo.com/en/terms) (terms and attribution; contact site for privacy details) |
 | Google News / Google | [https://policies.google.com/privacy](https://policies.google.com/privacy) |
 | Wikipedia / Wikimedia | [https://foundation.wikimedia.org/wiki/Policy:Privacy_policy](https://foundation.wikimedia.org/wiki/Policy:Privacy_policy) |
@@ -46,7 +50,9 @@ Thuki/<version> (+https://thuki.app)
 
 Wikipedia keeps a Wikimedia-compliant descriptive User-Agent (product name, homepage, contact).
 
-**Search engines (DuckDuckGo HTML and Mojeek) deliberately use a normal browser User-Agent.** An honest bot-style User-Agent on DuckDuckGo’s `/html` endpoint is blocked immediately. The tradeoff is intentional: browser-like UA for SERP reachability, plus a cooldown that does not hammer a blocked engine so we do not retry through a block in a tight loop.
+**HTML search engines (DuckDuckGo and Mojeek) deliberately use a normal browser User-Agent.** An honest bot-style User-Agent on DuckDuckGo’s `/html` endpoint is blocked immediately. The tradeoff is intentional: browser-like UA for SERP reachability, plus a cooldown that does not hammer a blocked engine so we do not retry through a block in a tight loop.
+
+**SearXNG** receives a browser User-Agent as well, but if your instance sits on localhost the choice is cosmetic. **Tavily** receives a browser User-Agent alongside the `Authorization: Bearer` header; its API is designed for automated clients, so the UA is informative only.
 
 ## How you control search
 

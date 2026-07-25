@@ -86,23 +86,27 @@ Privacy links and User-Agent policy: [search-privacy.md](./search-privacy.md).
 
 ### General web search engines (SERP tier)
 
-When the turn needs open-web links (or a vertical was thin), Thuki scrapes **two** keyless HTML search engines **from your Mac**, in parallel, then **fuses** their hit lists:
+When the turn needs open-web links (or a vertical was thin), Thuki races **four** search engines **from your Mac**, in parallel, then **fuses** their hit lists:
 
-| Engine                                                   | Role in Thuki                                                                                                                         |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **[DuckDuckGo](https://duckduckgo.com/)** HTML (`/html`) | **Primary.** Richest organic results for general queries.                                                                             |
-| **[Mojeek](https://www.mojeek.com/)**                    | **Second independent ranking.** Scraper-friendly, lightweight HTML; still useful when DuckDuckGo is rate-limiting or blocking the IP. |
+| Engine                                                         | Role in Thuki                                                                                                                             |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **[DuckDuckGo](https://duckduckgo.com/)** HTML (`/html`)       | **Primary.** Richest organic results for general queries.                                                                                 |
+| **[Mojeek](https://www.mojeek.com/)**                          | **Second independent ranking.** Scraper-friendly, lightweight HTML; useful when DuckDuckGo is rate-limiting or blocking.                  |
+| **[SearXNG](https://docs.searxng.org/)** (JSON API)            | **Self-hosted privacy aggregator.** Bypasses SSRF guard for local/private network deployments. JSON API, no key needed.                   |
+| **[Tavily](https://tavily.com/)** (REST API)                   | **Keyed LLM-optimized API.** Requires `TAVILY_API_KEY` env var (or `~/.claude/settings.json`). JSON POST to `https://api.tavily.com/search`. |
 
 Queries go **device → those services**. Thuki does not proxy search through Quiet Node servers.
 
-### Why these two (and not others)
+### Why these four (and not others)
 
-Design goal for the general-web tier: **keyless**, **parseable server-rendered HTML**, and **two independent rankings** so agreement can beat junk that only one engine surfaces (then RRF merge).
+Design goal for the general-web tier: **parseable HTML/JSON** and **multiple independent rankings** so agreement can beat junk that only one engine surfaces (then RRF merge). DuckDuckGo and Mojeek are keyless HTML scrapes; SearXNG is a self-hosted JSON API that wraps many upstream engines; Tavily is a keyed REST API optimised for LLM retrieval.
 
-| Choice              | Why it fits                                                                                                                                                   |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **DuckDuckGo HTML** | Strong default recall; public HTML endpoint the product can parse without a search API key.                                                                   |
-| **Mojeek**          | Independent index; tolerant of this scrape style; covers blind spots when DDG is empty/blocked (DDG blocks are often multi-hour; Mojeek cooldown is shorter). |
+| Choice                | Why it fits                                                                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **DuckDuckGo HTML**   | Strong default recall; public HTML endpoint the product can parse without a search API key.                                                                   |
+| **Mojeek**            | Independent index; tolerant of this scrape style; covers blind spots when DDG is empty/blocked (DDG blocks are often multi-hour; Mojeek cooldown is shorter). |
+| **SearXNG**           | Self-hosted aggregator that wraps multiple upstream engines. JSON API, no key required. Bypasses SSRF checks for local/private-network instances.              |
+| **Tavily**            | Optimised for LLM use: returns pre-cleaned page content alongside snippets. Requires an API key set via `TAVILY_API_KEY` env var or `~/.claude/settings.json`. |
 
 **Probed and not used** for this tier (live checks in engine design notes):
 
@@ -111,9 +115,9 @@ Design goal for the general-web tier: **keyless**, **parseable server-rendered H
 | Brave / Startpage / Qwant                     | JS-shell pages: little or no usable result HTML without a full browser.    |
 | Ecosia / Presearch                            | Non-browser clients get **403**.                                           |
 | Bing                                          | Organic results no longer ship in the initial HTML in a form we can parse. |
-| Google web Search API / others that need keys | Breaks “keyless, no account” product shape.                                |
+| Google web Search API / others that need keys | Breaks “keyless, no account” product shape (Tavily is keyed by opt-in).    |
 
-Adding a third engine later is a single table entry in code (`ENGINES`); control flow already races and fuses N lists.
+All four engines race concurrently; the `ENGINES` table in `engine.rs` lists them as a single point of registration. Control flow already races and fuses N lists.
 
 Verticals stay separate: they are not “more SERP engines,” they are intent APIs tried first.
 
@@ -153,7 +157,7 @@ Terms used in the map below:
 | **SERP**                           | **S**earch **E**ngine **R**esults **P**age: the list of titled links + snippets a search engine returns for a query (before opening any result page). |
 | **RRF**                            | **R**eciprocal **R**ank **F**usion: formula that merges several ranked URL lists without training (`score ≈ sum 1/(k + rank)`).                       |
 | **BM25**                           | Classic **keyword** score for “how well does this passage match the query?” (also called Okapi BM25). No neural embedding required.                   |
-| **DDG / Mojeek**                   | **DuckDuckGo** and **Mojeek**: the two public HTML search engines Thuki scrapes for general web hits.                                                 |
+| **DDG / Mojeek / SearXNG / Tavily** | **DuckDuckGo**, **Mojeek**, **SearXNG**, and **Tavily**: the four search engines Thuki uses for general web hits. |
 | **Citation audit**                 | After the answer streams, code checks that `[n]` markers match the numbered sources (may repair or show an honesty note).                             |
 
 ```mermaid
@@ -170,7 +174,7 @@ flowchart TD
   E -->|web| L0[Resolve query language]
   L0 --> G{Route}
   G --> H[Vertical: weather news wiki sports]
-  G --> I[Engines: DDG + Mojeek]
+  G --> I[Engines: DDG + Mojeek + SearXNG + Tavily]
   H --> J[Sufficiency judge]
   J -->|enough| K[Assemble sources]
   J -->|thin| I
@@ -195,7 +199,7 @@ flowchart TD
 | 4      | `cache` / `serp_cache`          | Conversation page cache (reuse) + process SERP/page scrape cache        |
 | 5      | Verticals                       | Weather, news, Wikipedia, sports APIs                                   |
 | 6      | `judge`                         | Did the vertical actually answer? Else escalate                         |
-| 7      | `engine`                        | Scrape keyless SERPs, fuse ranks (RRF + credibility list)               |
+| 7      | `engine`                        | Scrape SERPs (DDG, Mojeek, SearXNG, Tavily), fuse ranks (RRF + credibility list) |
 | 8      | `fetch`                         | Download pages, extract readable text                                   |
 | 9      | `rank` + `recency` + `evidence` | Passages, freshness prior, price/freshness filters                      |
 | 10     | `assemble`                      | Numbered source blocks under a token budget                             |
@@ -204,7 +208,7 @@ flowchart TD
 | glue   | `orchestrator`                  | Fixed order, cancellation, outcomes, timings                            |
 | glue   | `stage_timing`                  | Per-stage wall times → stderr + chat trace                              |
 
-Outbound HTTP goes through `src-tauri/src/net/`: SSRF-safe transport (every fetch re-checks that the target is a public internet address, not private/LAN).
+Outbound HTTP goes through `src-tauri/src/net/`: SSRF-safe transport (every fetch re-checks that the target is a public internet address, not private/LAN). SearXNG requests set `bypass_ssrf: true` so self-hosted instances on private/LAN IPs work; Tavily and the HTML engines use the SSRF-guarded client.
 
 ---
 
@@ -543,21 +547,21 @@ Code: `judge.rs`, `orchestrator.rs`.
 
 ## Engine tier
 
-**What.** General web: scrape public HTML search result pages (DuckDuckGo + Mojeek), merge lists, pick top URLs.
+**What.** General web: race four search engines, parse their results, merge lists, pick top URLs.
 
-**Why.** No single engine is enough; agreement across engines improves quality. Keyless HTML is what the product can call without user API keys.
+**Why.** No single engine is enough; agreement across engines improves quality. DuckDuckGo and Mojeek are keyless public HTML; SearXNG is a self-hosted JSON API (wraps multiple upstream engines); Tavily is a keyed REST API optimised for LLM retrieval.
 
 **How.**
 
-1. For each keyword query, request DuckDuckGo and Mojeek **in parallel** (browser **User-Agent** string on these endpoints: the client identity browsers send; SERP HTML often blocks a bot-style product name).
-2. Parse HTML into hit lists (title, url, snippet); strip ads; decode DuckDuckGo redirect URLs.
+1. For each keyword query, request **all four engines in parallel**: DuckDuckGo (HTML), Mojeek (HTML), SearXNG (JSON GET, self-hosted, bypasses SSRF guard), and Tavily (JSON POST, requires `TAVILY_API_KEY` env var or `~/.claude/settings.json`).
+2. Parse each response into hit lists (title, url, snippet); strip ads; decode DuckDuckGo redirect URLs.
 3. Drop / penalize / boost hosts via compiled **credibility** list (static good/bad domain list for ranking bias only, not a security firewall).
 4. **RRF merge** across lists: each URL scores `sum over engines of 1/(60 + rank)`; cap per domain and total hits.
-5. Mark engines blocked/empty; apply cooldowns so a blocked engine is not hammered.
+5. Mark engines blocked/empty; apply cooldowns so a blocked engine is not hammered. Tavily enters cooldown when the API key is missing or returns 401.
 6. On freshness questions, bias DuckDuckGo toward recent results (`df=w` form field + cookie).
 
 **Example.**  
-Query `openai ceo` → DuckDuckGo ranks A,B,C; Mojeek ranks B,D → B’s RRF score wins → fetch B first.
+Query `openai ceo` → DuckDuckGo ranks A,B,C; Mojeek ranks B,D; SearXNG ranks C,D; Tavily ranks A,C → D’s RRF score across four engines wins → fetch D first.
 
 **Maintenance.** The bulk-imported penalize clusters in `credibility_domains.txt` are refreshed by a scheduled GitHub Action that pulls the latest upstream license-clean spam/copycat lists and opens a reviewable PR when the diff is non-empty; a human still reviews and merges every change. The app itself never fetches these lists at runtime, so the no-phone-home privacy stance is unchanged; updates only ship inside a release.
 
@@ -811,6 +815,8 @@ How to run: [search-eval.md](./search-eval.md).
 | RRF                  | **R**eciprocal **R**ank **F**usion: merge lists by `1/(k+rank)`    |
 | BM25                 | Classic keyword relevance score (Okapi BM25)                       |
 | DDG                  | DuckDuckGo HTML search                                             |
+| SearXNG              | Self-hosted privacy search aggregator (JSON API, no key)           |
+| Tavily               | Keyed REST search API for LLM retrieval (JSON POST)                |
 | SSRF                 | **S**erver-**s**ide **r**equest **f**orgery risk; blocked by `net` |
 | Nonce                | One-time random fence token around untrusted page text             |
 | TTL                  | Time-to-live (cache expiry)                                        |
