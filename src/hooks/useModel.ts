@@ -432,6 +432,9 @@ export function useModel(
       target: TurnTarget,
       forceSearch?: boolean,
       slashCommand?: string,
+      /** Pre-populates the assistant message content before streaming begins.
+       *  Useful for showing images or other content ahead of model text. */
+      preSeedContent?: string,
     ) => {
       if (!displayContent.trim() && (!imagePaths || imagePaths.length === 0)) {
         return;
@@ -471,7 +474,7 @@ export function useModel(
       const assistantMsg: Message = {
         id: assistantId,
         role: 'assistant',
-        content: '',
+        content: preSeedContent ?? '',
         fromThink: think ? true : undefined,
         // Force-search turns own the Variant B progress chrome immediately
         fromSearch: forceSearch ? true : undefined,
@@ -528,7 +531,7 @@ export function useModel(
       const generationId = beginGeneration(assistantId);
 
       const channel = new Channel<RawStreamChunk>();
-      let currentContent = '';
+      let currentContent = preSeedContent ?? '';
       let currentThinkingContent = '';
       let pendingSources: SearchResultPreview[] | undefined;
       let pendingFailReason: SearchFailReason | undefined;
@@ -823,6 +826,7 @@ export function useModel(
        * auto-search for transform utilities. Omitted for plain chat.
        */
       slashCommand?: string,
+      preSeedContent?: string,
     ) =>
       runChatTurn(
         displayContent,
@@ -836,6 +840,7 @@ export function useModel(
         { mode: 'append' },
         undefined,
         slashCommand,
+        preSeedContent,
       ),
     [runChatTurn],
   );

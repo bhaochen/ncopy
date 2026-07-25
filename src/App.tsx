@@ -864,18 +864,30 @@ function App() {
         const result = await invoke<ImageSearchResult>('search_images', {
           query,
         });
-        // Format results as markdown for the model
-        let formatted = `Image search results for "${query}":\n\n`;
         if (result.hits.length === 0) {
-          formatted += 'No images found.\n';
-        } else {
-          for (const hit of result.hits.slice(0, 20)) {
-            formatted += `- ![${hit.title || 'image'}](${hit.img_src})`;
-            if (hit.title) formatted += ` ${hit.title}`;
-            formatted += `\n  Source: ${hit.url}\n\n`;
-          }
+          ask(displayContent, quotedText, undefined, undefined,
+            'No images found for your search query.');
+          return;
         }
-        ask(displayContent, quotedText, undefined, undefined, formatted);
+        // Format images as markdown to pre-populate the assistant bubble
+        let imageMarkdown = '';
+        for (const hit of result.hits.slice(0, 12)) {
+          imageMarkdown += `![${hit.title || 'image'}](${hit.img_src})\n\n`;
+        }
+        // Pre-seed the assistant message with images, then have the model
+        // describe them (promptOverride instructs the model).
+        ask(
+          displayContent,
+          quotedText,
+          undefined,
+          undefined,
+          `Below are the images found for "${query}". Describe them briefly.\n\nThe images were sourced from: ${result.hits.map((h) => h.source).filter((s, i, a) => a.indexOf(s) === i).join(', ')}.`,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          imageMarkdown,
+        );
       } catch (e) {
         console.error('Image search failed:', e);
         ask(displayContent, quotedText);
