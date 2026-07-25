@@ -478,27 +478,43 @@ pub(crate) fn decide_session(
 /// Coverage-off: pure `libc` FFI. It performs no arithmetic to delegate.
 #[cfg_attr(coverage_nightly, coverage(off))]
 pub(crate) fn boot_time_secs() -> i64 {
-    let mut tv = libc::timeval {
-        tv_sec: 0,
-        tv_usec: 0,
-    };
-    let mut size = std::mem::size_of::<libc::timeval>();
-    let name = c"kern.boottime";
-    // Safety: `sysctlbyname` writes at most `size` bytes into `tv`; the buffer
-    // is exactly one `timeval`, matching what `kern.boottime` returns.
-    let rc = unsafe {
-        libc::sysctlbyname(
-            name.as_ptr(),
-            (&mut tv as *mut libc::timeval).cast(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if rc != 0 {
-        return 0;
+    #[cfg(target_os = "macos")]
+    {
+        let mut tv = libc::timeval {
+            tv_sec: 0,
+            tv_usec: 0,
+        };
+        let mut size = std::mem::size_of::<libc::timeval>();
+        let name = c"kern.boottime";
+        let rc = unsafe {
+            libc::sysctlbyname(
+                name.as_ptr(),
+                (&mut tv as *mut libc::timeval).cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if rc != 0 {
+            return 0;
+        }
+        tv.tv_sec
     }
-    tv.tv_sec
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Read `btime` from /proc/stat (Linux).
+        std::fs::read_to_string("/proc/stat")
+            .ok()
+            .and_then(|content| {
+                for line in content.lines() {
+                    if line.starts_with("btime ") {
+                        return line.split_whitespace().nth(1)?.parse::<i64>().ok();
+                    }
+                }
+                None
+            })
+            .unwrap_or(0)
+    }
 }
 
 /// The outcome of trying to take the process-lifetime session lock.
@@ -573,21 +589,25 @@ fn tmp_path_for(target: &Path) -> PathBuf {
     s.into()
 }
 
-/// Forces the file's data AND the drive's own write cache to disk.
+/// Forces the file's data to disk.
 ///
-/// Coverage-off: `libc::fcntl` FFI, exercised live by the durable-write test.
-// why: on macOS a plain `fsync`/`sync_all` flushes to the drive but does NOT
-// force the drive to flush its onboard write cache; only `F_FULLFSYNC` does.
-// Without it a power loss right after a "successful" write can still lose the
-// launch record, defeating the write-ahead durability guarantee.
+/// On macOS uses `F_FULLFSYNC` to force drive write cache flush; on Linux
+/// `sync_all` is sufficient (the kernel's `fsync` already flushes the drive
+/// write cache through the block layer).
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn full_fsync(file: &File) -> std::io::Result<()> {
-    // Safety: `file` owns a valid fd; `F_FULLFSYNC` takes no argument.
-    let rc = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_FULLFSYNC) };
-    if rc == -1 {
-        return Err(std::io::Error::last_os_error());
+    #[cfg(target_os = "macos")]
+    {
+        let rc = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_FULLFSYNC) };
+        if rc == -1 {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(())
     }
-    Ok(())
+    #[cfg(not(target_os = "macos"))]
+    {
+        file.sync_all()
+    }
 }
 
 /// Fsyncs a directory so a rename inside it is durable across power loss.

@@ -46,13 +46,13 @@ pub mod permissions;
 pub mod replace;
 
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     Arc,
 };
 
 use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Listener, Manager, RunEvent, WebviewWindow,
+    Emitter, Listener, Manager, RunEvent,
 };
 
 #[cfg(target_os = "macos")]
@@ -367,6 +367,7 @@ fn set_onboarding_active_impl(active: bool) {
 /// is open. Regular makes that window order and layer like a normal app window
 /// (it opens on top, but another app clicked afterwards rises above it) and
 /// surfaces a Dock icon so a user who clicks away can get back to it.
+#[cfg(any(target_os = "macos", test))]
 static SETTINGS_OPEN: AtomicBool = AtomicBool::new(false);
 
 /// True while the "What's New" update window is open (shown, not yet
@@ -376,6 +377,7 @@ static SETTINGS_OPEN: AtomicBool = AtomicBool::new(false);
 /// clicked afterwards rises above it, a Dock icon offers a way back) and so
 /// activating pulls the user to the window's Space instead of floating it over
 /// whatever Space they are on.
+#[cfg(any(target_os = "macos", test))]
 static UPDATE_OPEN: AtomicBool = AtomicBool::new(false);
 
 /// Whether the app should currently present as a regular foreground app (Dock
@@ -383,6 +385,7 @@ static UPDATE_OPEN: AtomicBool = AtomicBool::new(false);
 /// while Settings, the update window, or onboarding owns a real window; false
 /// when only the floating overlay is around. Pure so the policy decision is
 /// unit-tested without touching AppKit; `sync_activation_policy` applies it.
+#[cfg(any(target_os = "macos", test))]
 fn wants_regular_activation() -> bool {
     SETTINGS_OPEN.load(Ordering::SeqCst)
         || UPDATE_OPEN.load(Ordering::SeqCst)
@@ -1156,6 +1159,7 @@ fn show_overlay(app_handle: &tauri::AppHandle, ctx: crate::context::ActivationCo
 ///
 /// Uses an atomic flag as the single source of truth for intended visibility,
 /// which avoids race conditions with the native panel state during animations.
+#[cfg(target_os = "macos")]
 fn toggle_overlay(app_handle: &tauri::AppHandle, ctx: crate::context::ActivationContext) {
     if take_minimized_for_restore() {
         emit_overlay_restore(app_handle);
@@ -1210,6 +1214,7 @@ fn set_window_frame(app_handle: tauri::AppHandle, x: f64, y: f64, width: f64, he
 ///
 /// `cur` is `(origin_x, origin_y, width, height)`; the return is the same shape
 /// for the target frame.
+#[cfg(any(target_os = "macos", test))]
 fn compute_top_left_anchored_target(
     cur: (f64, f64, f64, f64),
     w: f64,
@@ -1564,7 +1569,7 @@ fn set_overlay_minimized(minimized: bool) {
 /// the frontend listener registration.
 #[tauri::command]
 #[cfg_attr(coverage_nightly, coverage(off))]
-fn notify_frontend_ready(app_handle: tauri::AppHandle, db: tauri::State<history::Database>) {
+fn notify_frontend_ready(app_handle: tauri::AppHandle, _db: tauri::State<history::Database>) {
     if LAUNCH_SHOW_PENDING.swap(false, Ordering::SeqCst) {
         #[cfg(target_os = "macos")]
         {
@@ -2200,45 +2205,32 @@ fn position_overlay_ask_bar(app_handle: tauri::AppHandle) {
 /// All window mutations run on the macOS main thread via `run_on_main_thread`;
 /// the event is emitted from the same closure to avoid a race where the
 /// frontend receives the event before the window is visible.
-#[cfg(target_os = "macos")]
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn show_onboarding_window(app_handle: &tauri::AppHandle, stage: onboarding::OnboardingStage) {
-    // Mark onboarding as owning the main window so any activation that races in
-    // (tray / double-tap Control) is gated out of the ask-bar show path.
     set_onboarding_active_impl(true);
-    // Onboarding is a foreground task: run under Regular activation so it gets a
-    // Dock icon (a lost user can click back to it) and normal window layering.
+    #[cfg(target_os = "macos")]
     sync_activation_policy(app_handle);
-    // Cover the transition: the resize + recenter below happen while the React
-    // tree is still showing the previous step, so do them on an invisible panel
-    // and let the frontend fade it back in once the new screen has settled. The
-    // backstop guarantees a reveal even if the frontend one is missed.
+    #[cfg(target_os = "macos")]
     arm_onboarding_reveal_backstop(app_handle);
     let handle = app_handle.clone();
     let (win_w, win_h) = onboarding_window_size(&stage);
     let _ = app_handle.run_on_main_thread(move || {
         if let Some(window) = handle.get_webview_window("main") {
+            #[cfg(target_os = "macos")]
             set_main_window_alpha_now(&window, 0.0);
             let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(win_w, win_h)));
             let _ = window.center();
         }
-        match handle.get_webview_panel("main") {
-            Ok(panel) => {
-                // Use normal window level so System Settings can appear above.
-                panel.set_level(0);
-                // Re-enable native shadow for onboarding. init_panel disables
-                // it for the overlay to avoid the key/non-key shadow flicker,
-                // but for onboarding the native shadow looks professional and
-                // renders outside the window boundary - no transparent padding
-                // needed.
-                panel.set_has_shadow(true);
-                panel.show_and_make_key();
-            }
-            Err(_) => {
-                if let Some(w) = handle.get_webview_window("main") {
-                    let _ = w.show();
-                }
-            }
+        #[cfg(target_os = "macos")]
+        if let Ok(panel) = handle.get_webview_panel("main") {
+            panel.set_level(0);
+            panel.set_has_shadow(true);
+            panel.show_and_make_key();
+        }
+        #[cfg(not(target_os = "macos"))]
+        if let Some(w) = handle.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.set_focus();
         }
         let _ = handle.emit(ONBOARDING_EVENT, OnboardingPayload { stage });
     });
@@ -2451,20 +2443,39 @@ fn config_file_has_providers(path: &std::path::Path) -> bool {
 /// Debug builds run straight from the repo, so the target-triple-suffixed
 /// binary in `src-tauri/binaries/` is used directly. Bundled builds rely on
 /// Tauri's `externalBin` handling, which installs the sidecar next to the
-/// app executable (`Contents/MacOS`) with the target-triple suffix stripped,
-/// so it resolves relative to `current_exe()`. Verified manually against the
-/// packaged app layout (see the release checklist).
+/// app executable with the target-triple suffix stripped,
+/// so it resolves relative to `current_exe()`.
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn engine_sidecar_path() -> std::path::PathBuf {
     if cfg!(debug_assertions) {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("binaries")
-            .join("llama-server-aarch64-apple-darwin")
+            .join(engine_sidecar_name())
     } else {
         std::env::current_exe()
             .ok()
             .and_then(|exe| exe.parent().map(|dir| dir.join("llama-server")))
             .unwrap_or_else(|| std::path::PathBuf::from("llama-server"))
+    }
+}
+
+/// Returns the target-triple-suffixed engine binary name for the current
+/// platform.
+fn engine_sidecar_name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "aarch64") {
+            "llama-server-aarch64-apple-darwin"
+        } else {
+            "llama-server-x86_64-apple-darwin"
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "aarch64") {
+            "llama-server-aarch64-unknown-linux-gnu"
+        } else {
+            "llama-server-x86_64-unknown-linux-gnu"
+        }
+    } else {
+        "llama-server"
     }
 }
 
@@ -2480,16 +2491,14 @@ pub fn run() {
     // async-signal context. See `startup_guard::block_shutdown_signals`.
     startup_guard::block_shutdown_signals();
 
-    let mut builder = tauri::Builder::default();
-
-    #[cfg(target_os = "macos")]
-    {
-        builder = builder.plugin(tauri_nspanel::init());
-    }
-
-    builder
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_dialog::init())
+    ({
+        let b = tauri::Builder::default();
+        #[cfg(target_os = "macos")]
+        let b = b.plugin(tauri_nspanel::init());
+        b
+    })
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_dialog::init())
         // Replace Tauri's default macOS menu: its predefined Quit does a hard
         // quit on Cmd+Q that bypasses our handlers. Our custom Quit fires this
         // handler instead, so a download in flight gets the warning.

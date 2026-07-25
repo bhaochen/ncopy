@@ -37,6 +37,7 @@ pub fn join_ocr_results(parts: Vec<String>) -> String {
 
 // Vision framework is linked transitively via objc2-vision.
 // VNRequestTextRecognitionLevelAccurate = 0 (from Vision/VNDefines.h).
+#[cfg(target_os = "macos")]
 const VN_RECOGNITION_LEVEL_ACCURATE: u64 = 0;
 
 /// Calls VNRecognizeTextRequest for a single image path.
@@ -151,13 +152,20 @@ pub fn extract_text_from_paths(paths: &[String]) -> Result<String, String> {
 
 // ─── Tauri command ───────────────────────────────────────────────────────────
 
-/// Extracts text from one or more image files using macOS Vision OCR.
-/// Excluded from coverage: thin command wrapper over `extract_text_from_paths`.
-#[cfg(target_os = "macos")]
+/// Extracts text from one or more image files using OCR.
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[tauri::command]
 pub async fn extract_text_command(image_paths: Vec<String>) -> Result<String, String> {
-    extract_text_from_paths(&image_paths)
+    #[cfg(target_os = "macos")]
+    {
+        extract_text_from_paths(&image_paths)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // On Linux, shell out to tesseract CLI for each image.
+        let _ = &image_paths;
+        Err("OCR is not yet implemented on this platform".to_string())
+    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

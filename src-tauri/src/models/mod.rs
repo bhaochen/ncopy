@@ -2813,32 +2813,43 @@ pub fn discard_partial_inner(
     }
 }
 
-/// Total physical RAM in bytes via `sysctlbyname("hw.memsize")`; 0 when the
-/// syscall fails.
+/// Total physical RAM in bytes; 0 when the syscall fails.
 ///
-/// Not covered by the cargo coverage gate: this is a direct OS syscall with
-/// no branching logic beyond error propagation, making instrumentation
-/// meaningless here (mirrors `storage::free_disk_bytes`).
+/// On macOS uses `sysctlbyname("hw.memsize")`; on Linux uses
+/// `sysconf(_SC_PHYS_PAGES)` × `sysconf(_SC_PAGE_SIZE)`.
 #[cfg_attr(coverage_nightly, coverage(off))]
 pub fn system_ram_bytes() -> u64 {
-    let mut value: u64 = 0;
-    let mut len: libc::size_t = std::mem::size_of::<u64>();
-    // SAFETY: `value` is a valid 8-byte buffer and `len` carries its exact
-    // size; `sysctlbyname` writes at most `len` bytes into it on success
-    // (return value 0). The name is a static NUL-terminated literal.
-    unsafe {
-        if libc::sysctlbyname(
-            c"hw.memsize".as_ptr(),
-            &mut value as *mut u64 as *mut libc::c_void,
-            &mut len,
-            std::ptr::null_mut(),
-            0,
-        ) == 0
-        {
-            value
+    #[cfg(target_os = "macos")]
+    {
+        let mut value: u64 = 0;
+        let mut len: libc::size_t = std::mem::size_of::<u64>();
+        unsafe {
+            if libc::sysctlbyname(
+                c"hw.memsize".as_ptr(),
+                &mut value as *mut u64 as *mut libc::c_void,
+                &mut len,
+                std::ptr::null_mut(),
+                0,
+            ) == 0
+            {
+                return value;
+            }
+        }
+        0
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let pages = unsafe { libc::sysconf(libc::_SC_PHYS_PAGES) };
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) };
+        if pages > 0 && page_size > 0 {
+            (pages as u64) * (page_size as u64)
         } else {
             0
         }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        0
     }
 }
 

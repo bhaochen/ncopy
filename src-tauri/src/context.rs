@@ -49,6 +49,7 @@ impl ActivationContext {
 /// macOS-only `clipboard_fallback` as plain, portable logic so it can be unit
 /// tested directly — the pasteboard I/O and key-event simulation around it
 /// require a real OS and can't be.
+#[cfg(any(target_os = "macos", test))]
 fn copied_text(after: &str) -> Option<String> {
     let trimmed = after.trim();
     if trimmed.is_empty() {

@@ -413,25 +413,41 @@ pub fn decide_load_gate(
     )
 }
 
-/// Live available system memory in bytes via mach `host_statistics64`
-/// (`HOST_VM_INFO64`): the sum of the free, inactive, speculative, and
-/// purgeable pages, which the kernel can reclaim without swapping. Returns 0
-/// on any syscall failure, which the fit estimator treats as "unknown" and
-/// never blocks on.
+/// Live available system memory in bytes.
 ///
-/// Not covered by the cargo coverage gate: a direct OS syscall whose only
-/// logic is the pure [`available_from_vm_stats`] arithmetic it delegates to
-/// (mirrors `super::system_ram_bytes` and `storage::free_disk_bytes`).
+/// On macOS uses mach `host_statistics64` (`HOST_VM_INFO64`): sums the free,
+/// inactive, speculative, and purgeable pages. On Linux reads `MemAvailable`
+/// from `/proc/meminfo`. Returns 0 on failure — the fit estimator treats 0 as
+/// "unknown" and never blocks on it.
 #[cfg_attr(coverage_nightly, coverage(off))]
-// `libc::mach_host_self` is deprecated in favor of the `mach2` crate, but it is
-// a stable one-call syscall and pulling in another dependency for it is not
-// worth it; the call is confined to this wrapper.
-#[allow(deprecated)]
 pub fn available_memory_bytes() -> u64 {
-    // `libc` 0.2.186 exports `mach_host_self`/`host_statistics64`/`mach_task_self`
-    // but not `mach_port_deallocate`, so declare it directly. It lives in
-    // libSystem (always linked on macOS), and releases the host send right that
-    // `mach_host_self` hands the caller.
+    #[cfg(target_os = "macos")]
+    {
+        available_memory_bytes_macos()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Read MemAvailable from /proc/meminfo (Linux).
+        std::fs::read_to_string("/proc/meminfo")
+            .ok()
+            .and_then(|content| {
+                for line in content.lines() {
+                    if line.starts_with("MemAvailable:") {
+                        let kb = line.split_whitespace().nth(1)?;
+                        return kb.parse::<u64>().ok().map(|k| k * 1024);
+                    }
+                }
+                None
+            })
+            .unwrap_or(0)
+    }
+}
+
+/// macOS: available memory via mach `host_statistics64`.
+#[cfg(target_os = "macos")]
+#[cfg_attr(coverage_nightly, coverage(off))]
+#[allow(deprecated)]
+fn available_memory_bytes_macos() -> u64 {
     unsafe extern "C" {
         fn mach_port_deallocate(
             task: libc::mach_port_t,
@@ -439,16 +455,6 @@ pub fn available_memory_bytes() -> u64 {
         ) -> libc::kern_return_t;
     }
 
-    // SAFETY: `page_size` is guarded before the host port is acquired, so a
-    // `sysconf` failure never leaks a send right. `mach_host_self` returns a
-    // host port the caller owns; `stats` is a valid, correctly-sized stack
-    // buffer and `count` is initialized to the element count
-    // `host_statistics64` expects for `HOST_VM_INFO64`, read/written in place.
-    // The host port is released via `mach_port_deallocate` on every path once
-    // the read is done (the send right is dead after `host_statistics64`
-    // returns, whatever its status); `mach_task_self` is not caller-owned and is
-    // never deallocated. Every non-success return is mapped to 0, so no
-    // uninitialized data is ever consumed.
     unsafe {
         let page_size = libc::sysconf(libc::_SC_PAGESIZE);
         if page_size <= 0 {
@@ -465,10 +471,6 @@ pub fn available_memory_bytes() -> u64 {
             &mut stats as *mut libc::vm_statistics64 as libc::host_info64_t,
             &mut count,
         );
-        // Release the host send right on every path out. A deallocate failure
-        // cannot be recovered from and must not mask the memory read, but it
-        // signals a real port-management problem, so log it rather than swallow
-        // it (mirrors `startup_guard`'s forgiving-boundary eprintln convention).
         let dr = mach_port_deallocate(libc::mach_task_self(), host);
         if dr != libc::KERN_SUCCESS {
             eprintln!("thuki: [memory] mach_port_deallocate(host) failed: {dr}");

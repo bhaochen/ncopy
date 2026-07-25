@@ -157,131 +157,147 @@ fn reap_with(
 // ---------------------------------------------------------------------------
 
 /// This process's real uid via `getuid`.
-///
-/// Coverage-off: a single infallible `libc` call with no logic to test.
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn current_ruid() -> u32 {
-    // SAFETY: `getuid` always succeeds and takes no arguments.
     unsafe { libc::getuid() }
 }
 
-/// Every live pid via `proc_listallpids`.
-///
-/// Coverage-off: a two-step `libc` syscall (size, then fill) with a shape
-/// conversion, no decision logic. `proc_listallpids` returns a COUNT of pids
-/// (its libproc wrapper divides the byte length by `sizeof(int)`); the buffer
-/// size argument is in bytes. A generous slack over the sized count absorbs
-/// processes started between the two calls, and a final `> 0` filter drops any
-/// unfilled zero slots regardless of the exact return semantics.
-#[cfg_attr(coverage_nightly, coverage(off))]
-fn all_pids() -> Vec<i32> {
-    // SAFETY: a null buffer with size 0 asks libproc only for the current count.
-    let needed = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
-    if needed <= 0 {
-        return Vec::new();
+// ── macOS process enumeration (libproc) ────────────────────────────────────
+
+#[cfg(target_os = "macos")]
+mod sys {
+    use super::*;
+
+    pub fn all_pids() -> Vec<i32> {
+        let needed = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+        if needed <= 0 {
+            return Vec::new();
+        }
+        let cap = (needed as usize).saturating_add(32);
+        let mut buf: Vec<libc::c_int> = vec![0; cap];
+        let byte_len = (cap * std::mem::size_of::<libc::c_int>()) as libc::c_int;
+        let filled =
+            unsafe { libc::proc_listallpids(buf.as_mut_ptr() as *mut libc::c_void, byte_len) };
+        if filled <= 0 {
+            return Vec::new();
+        }
+        buf.truncate((filled as usize).min(cap));
+        buf.retain(|&pid| pid > 0);
+        buf
     }
-    let cap = (needed as usize).saturating_add(32);
-    let mut buf: Vec<libc::c_int> = vec![0; cap];
-    let byte_len = (cap * std::mem::size_of::<libc::c_int>()) as libc::c_int;
-    // SAFETY: `buf` owns `cap` `c_int` slots; `byte_len` is its size in bytes, so
-    // libproc writes at most `cap` pids into a buffer that holds exactly that.
-    let filled = unsafe { libc::proc_listallpids(buf.as_mut_ptr() as *mut libc::c_void, byte_len) };
-    if filled <= 0 {
-        return Vec::new();
+
+    pub fn bsdinfo_of(pid: i32) -> Option<libc::proc_bsdinfo> {
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+        let n = unsafe {
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                &mut info as *mut libc::proc_bsdinfo as *mut libc::c_void,
+                size,
+            )
+        };
+        if n != size {
+            return None;
+        }
+        Some(info)
     }
-    buf.truncate((filled as usize).min(cap));
-    buf.retain(|&pid| pid > 0);
-    buf
+
+    pub fn exec_path_of(pid: i32) -> Option<PathBuf> {
+        use std::os::unix::ffi::OsStringExt;
+        let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        let n = unsafe {
+            libc::proc_pidpath(pid, buf.as_mut_ptr() as *mut libc::c_void, buf.len() as u32)
+        };
+        if n <= 0 {
+            return None;
+        }
+        buf.truncate(n as usize);
+        let raw = PathBuf::from(std::ffi::OsString::from_vec(buf));
+        std::fs::canonicalize(raw).ok()
+    }
 }
 
-/// Reads `proc_bsdinfo` for `pid` via `proc_pidinfo(PROC_PIDTBSDINFO)`, or `None`
-/// if the process vanished mid-scan or could not be read fully.
-///
-/// Coverage-off: a single `libc` syscall. A short read (return value not equal
-/// to the struct size) means the process is gone or inaccessible: `None`.
-#[cfg_attr(coverage_nightly, coverage(off))]
-fn bsdinfo_of(pid: i32) -> Option<libc::proc_bsdinfo> {
-    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-    // SAFETY: `info` is a valid, zeroed `proc_bsdinfo`; `size` is its exact byte
-    // size, so `proc_pidinfo` fills it in place and returns the bytes written.
-    let n = unsafe {
-        libc::proc_pidinfo(
-            pid,
-            libc::PROC_PIDTBSDINFO,
-            0,
-            &mut info as *mut libc::proc_bsdinfo as *mut libc::c_void,
-            size,
-        )
-    };
-    if n != size {
-        return None;
+// ── Linux process enumeration (/proc) ──────────────────────────────────────
+
+#[cfg(target_os = "linux")]
+mod sys {
+    use super::*;
+
+    pub fn all_pids() -> Vec<i32> {
+        let mut pids = Vec::new();
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return pids;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if let Ok(pid) = name.to_string_lossy().parse::<i32>() {
+                pids.push(pid);
+            }
+        }
+        pids
     }
-    Some(info)
+
+    pub fn bsdinfo_of(pid: i32) -> Option<ProcIdent> {
+        let stat_path = format!("/proc/{pid}/stat");
+        let status_path = format!("/proc/{pid}/status");
+
+        let stat = std::fs::read_to_string(&stat_path).ok()?;
+        // /proc/[pid]/stat: field 4 (1-indexed) is ppid.
+        // After the comm field (parenthesized, may contain spaces), fields are
+        // space-separated. Find the last ')' to skip the comm field.
+        let after_comm = stat.rfind(')')?;
+        let rest: Vec<&str> = stat[after_comm + 2..].split_whitespace().collect();
+        let ppid: i32 = rest.get(1)?.parse().ok()?;
+
+        let ruid = std::fs::read_to_string(&status_path)
+            .ok()
+            .and_then(|s| {
+                for line in s.lines() {
+                    if line.starts_with("Uid:") {
+                        return line.split_whitespace().nth(1)?.parse::<u32>().ok();
+                    }
+                }
+                None
+            })?;
+
+        Some(ProcIdent { pid, ppid, ruid })
+    }
+
+    pub fn exec_path_of(pid: i32) -> Option<PathBuf> {
+        let exe = PathBuf::from(format!("/proc/{pid}/exe"));
+        std::fs::read_link(&exe).ok().and_then(|p| std::fs::canonicalize(p).ok())
+    }
 }
 
 /// The cheap [`ProcIdent`] for `pid` (pid/ppid/ruid), no path resolution.
-///
-/// Coverage-off: `bsdinfo_of` plus a field copy. This is the per-pid step of the
-/// cheap-clause pre-filter, so the (expensive) path resolution never runs for a
-/// process that already fails `ppid == 1 && ruid == our_uid`.
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn ident_of(pid: i32) -> Option<ProcIdent> {
-    let info = bsdinfo_of(pid)?;
-    Some(ProcIdent {
-        pid,
-        ppid: info.pbi_ppid as i32,
-        ruid: info.pbi_ruid,
-    })
+    sys::bsdinfo_of(pid)
 }
 
 /// Every live process reduced to its cheap [`ProcIdent`], for the pre-filter.
-///
-/// Coverage-off: `all_pids` mapped through `ident_of`; a vanished pid is dropped.
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn all_idents() -> Vec<ProcIdent> {
-    all_pids().into_iter().filter_map(ident_of).collect()
+    sys::all_pids().into_iter().filter_map(ident_of).collect()
 }
 
-/// The canonicalized executable path of `pid` via `proc_pidpath`, or `None` if
-/// the process vanished or its path cannot be resolved.
-///
-/// Coverage-off: a single `libc` syscall plus a `canonicalize` shape conversion.
-/// Canonicalizing here (and the caller canonicalizing our own binary) is what
-/// makes the path clause survive symlinks (`/var` -> `/private/var`, worktree
-/// links): comparing two same-typed canonical paths. A canonicalize failure
-/// means we cannot prove identity, so it maps to `None`: never a match.
+/// The canonicalized executable path of `pid`.
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn exec_path_of(pid: i32) -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStringExt;
-    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    // SAFETY: `buf` is a valid, correctly sized byte buffer; `proc_pidpath`
-    // writes at most `buf.len()` bytes and returns the path length or <= 0.
-    let n =
-        unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr() as *mut libc::c_void, buf.len() as u32) };
-    if n <= 0 {
-        return None;
-    }
-    buf.truncate(n as usize);
-    let raw = PathBuf::from(std::ffi::OsString::from_vec(buf));
-    std::fs::canonicalize(raw).ok()
+    sys::exec_path_of(pid)
 }
 
-/// The full [`ProcInfo`] for `pid` (pid/ppid/ruid + canonicalized path), or
-/// `None` if the process vanished or could not be read fully.
-///
-/// Coverage-off: `bsdinfo_of` + `exec_path_of`, a fresh full read from a pid.
-/// Used to authorize a survivor and, crucially, to RE-verify immediately before
-/// `SIGKILL` (a fresh read, never a reused stale ident, so a recycled pid is
-/// caught).
+/// The full [`ProcInfo`] for `pid` (pid/ppid/ruid + canonicalized path).
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn proc_info_of(pid: i32) -> Option<ProcInfo> {
-    let info = bsdinfo_of(pid)?;
+    let info = ident_of(pid)?;
     let exec_path = exec_path_of(pid)?;
     Some(ProcInfo {
-        pid,
-        ppid: info.pbi_ppid as i32,
-        ruid: info.pbi_ruid,
+        pid: info.pid,
+        ppid: info.ppid,
+        ruid: info.ruid,
         exec_path,
     })
 }

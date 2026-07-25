@@ -158,6 +158,69 @@ pub fn quit_and_relaunch(app_handle: tauri::AppHandle, db: tauri::State<crate::h
     app_handle.restart();
 }
 
+// ─── Linux stubs ──────────────────────────────────────────────────────────────
+
+/// Non-macOS: permissions are always considered granted.
+#[cfg(not(target_os = "macos"))]
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn is_accessibility_granted() -> bool {
+    true
+}
+
+/// Non-macOS: screen recording is always considered granted.
+#[cfg(not(target_os = "macos"))]
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn is_screen_recording_granted() -> bool {
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn check_accessibility_permission() -> bool {
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn open_accessibility_settings() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn check_screen_recording_permission() -> bool {
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn open_screen_recording_settings() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn request_screen_recording_access() {}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn check_screen_recording_tcc_granted() -> bool {
+    true
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub fn quit_and_relaunch(_app_handle: tauri::AppHandle, _db: tauri::State<crate::history::Database>) {
+    _app_handle.restart();
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

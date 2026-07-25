@@ -75,7 +75,7 @@
         "default"
       ]
     },
-    "macOSPrivateApi": true
+    "macOSPrivateApi": false
   },
   "bundle": {
     "active": true,
@@ -84,29 +84,15 @@
     "externalBin": [
       "binaries/llama-server"
     ],
-    "macOS": {
-      "signingIdentity": "-",
-      "hardenedRuntime": false,
-      "minimumSystemVersion": "13.4",
-      "frameworks": [
-        "binaries/libggml-base.0.dylib",
-        "binaries/libggml-blas.0.dylib",
-        "binaries/libggml-cpu.0.dylib",
-        "binaries/libggml-metal.0.dylib",
-        "binaries/libggml-rpc.0.dylib",
-        "binaries/libggml.0.dylib",
-        "binaries/libllama-common.0.dylib",
-        "binaries/libllama-server-impl.dylib",
-        "binaries/libllama.0.dylib",
-        "binaries/libmtmd.0.dylib"
-      ]
+    "linux": {
+      "deb": {
+        "depends": []
+      }
     },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
+      "icons/128x128@2x.png"
     ]
   },
   "plugins": {
