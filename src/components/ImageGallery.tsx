@@ -9,12 +9,18 @@ interface ImageGalleryProps {
 
 export function ImageGallery({ hits }: ImageGalleryProps) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [failed, setFailed] = useState<Set<string>>(() => new Set());
   const trackRef = useRef<HTMLDivElement>(null);
 
-  const onWheel = useCallback((e: React.WheelEvent) => {
-    const el = trackRef.current;
-    if (!el) return;
-    el.scrollBy({ left: e.deltaY, behavior: 'instant' });
+  const goodHits = hits.filter((h) => !failed.has(h.img_src));
+
+  const onImgError = useCallback((url: string) => {
+    setFailed((prev) => {
+      if (prev.has(url)) return prev;
+      const next = new Set(prev);
+      next.add(url);
+      return next;
+    });
   }, []);
 
   const openPreview = useCallback((index: number) => {
@@ -27,9 +33,9 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
 
   const goNext = useCallback(() => {
     setPreviewIndex((prev) =>
-      prev !== null ? Math.min(prev + 1, hits.length - 1) : null,
+      prev !== null ? Math.min(prev + 1, goodHits.length - 1) : null,
     );
-  }, [hits.length]);
+  }, [goodHits.length]);
 
   const goPrev = useCallback(() => {
     setPreviewIndex((prev) =>
@@ -48,10 +54,18 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
     return () => window.removeEventListener('keydown', handler);
   }, [previewIndex, closePreview, goNext, goPrev]);
 
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    const el = trackRef.current;
+    if (!el) return;
+    el.scrollBy({ left: e.deltaY, behavior: 'instant' });
+  }, []);
+
+  if (goodHits.length === 0) return null;
+
   return (
     <div className={styles.wrapper}>
       <div className={styles.track} ref={trackRef} onWheel={onWheel}>
-        {hits.map((hit, i) => (
+        {goodHits.map((hit, i) => (
           <button
             key={hit.img_src}
             type="button"
@@ -64,13 +78,14 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
               alt={hit.title || ''}
               loading="lazy"
               className={styles.thumbImg}
+              onError={() => onImgError(hit.img_src)}
             />
           </button>
         ))}
       </div>
 
       <AnimatePresence>
-        {previewIndex !== null && (
+        {previewIndex !== null && previewIndex < goodHits.length && (
           <motion.div
             key="preview-overlay"
             className={styles.overlay}
@@ -103,7 +118,7 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
                 </svg>
               </button>
             )}
-            {previewIndex < hits.length - 1 && (
+            {previewIndex < goodHits.length - 1 && (
               <button
                 type="button"
                 className={`${styles.navBtn} ${styles.navNext}`}
@@ -117,13 +132,13 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
             )}
 
             <div className={styles.counter}>
-              {previewIndex + 1} / {hits.length}
+              {previewIndex + 1} / {goodHits.length}
             </div>
 
             <motion.img
-              key={hits[previewIndex].img_src}
-              src={hits[previewIndex].img_src}
-              alt={hits[previewIndex].title || ''}
+              key={goodHits[previewIndex].img_src}
+              src={goodHits[previewIndex].img_src}
+              alt={goodHits[previewIndex].title || ''}
               className={styles.previewImg}
               initial={{ opacity: 0, scale: 0.92 }}
               animate={{ opacity: 1, scale: 1 }}
