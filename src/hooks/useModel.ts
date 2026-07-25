@@ -614,8 +614,10 @@ export function useModel(
         }
 
         // Citation repair/strip changed the live draft: replace the full body.
+        // prepend preSeedContent so images are not lost (the backend does not
+        // know about pre-seeded content).
         if (chunk.type === 'SetContent') {
-          currentContent = chunk.content;
+          currentContent = (preSeedContent ?? '') + chunk.content;
           if (chunk.content) {
             markVisibleOutput();
           }

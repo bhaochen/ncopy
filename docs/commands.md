@@ -38,6 +38,20 @@ Forces a live web look-up and answers with citations (zero-setup).
 
 ---
 
+## /searchimage
+
+Searches for images matching your query using SearXNG (images category) and Tavily (include_images). Returns image URLs and source pages.
+
+**Usage:** `/searchimage <description>`
+
+**Examples:**
+- `/searchimage cute cats`: finds images of cute cats
+- `/searchimage modern architecture Tokyo`: finds photos of modern Tokyo buildings
+
+**Behavior:** Races SearXNG (categories=images) and Tavily (include_images=true) in parallel, fuses their image results, and presents the findings to the model. The model can then describe what it sees in the matched images.
+
+---
+
 ## /extract
 
 Extracts all visible text from screenshots or attached images using macOS Vision OCR.
