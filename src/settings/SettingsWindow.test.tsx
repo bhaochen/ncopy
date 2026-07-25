@@ -499,6 +499,15 @@ describe('SettingsWindow', () => {
     expect(__mockWindow.setFocus).toHaveBeenCalled();
   });
 
+  it('Ctrl+, on the document re-focuses the settings window', async () => {
+    render(<SettingsWindow />);
+    await waitFor(() => screen.getByRole('tab', { name: /Models/ }));
+
+    __mockWindow.setFocus.mockClear();
+    fireEvent.keyDown(document, { key: ',', ctrlKey: true });
+    expect(__mockWindow.setFocus).toHaveBeenCalled();
+  });
+
   it('Other keystrokes do not trigger setFocus', async () => {
     render(<SettingsWindow />);
     await waitFor(() => screen.getByRole('tab', { name: /Models/ }));
@@ -515,6 +524,15 @@ describe('SettingsWindow', () => {
 
     invokeMock.mockClear();
     fireEvent.keyDown(document, { key: 'w', metaKey: true });
+    expect(invokeMock).toHaveBeenCalledWith('hide_settings_window');
+  });
+
+  it('Ctrl+W on the document hides the settings window via the backend', async () => {
+    render(<SettingsWindow />);
+    await waitFor(() => screen.getByRole('tab', { name: /Models/ }));
+
+    invokeMock.mockClear();
+    fireEvent.keyDown(document, { key: 'w', ctrlKey: true });
     expect(invokeMock).toHaveBeenCalledWith('hide_settings_window');
   });
 

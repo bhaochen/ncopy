@@ -141,7 +141,7 @@ export function AboutTab({ onSaved, onReload }: AboutTabProps) {
           </InlineLink>
         </Tooltip>
         <div className={styles.aboutHeroTagline}>
-          A floating, local-first AI secretary for macOS.
+          A floating, local-first AI secretary.
           <br />
           <span className={styles.aboutHeroMantra}>
             No cloud. No clutter. Just answers.

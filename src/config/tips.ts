@@ -21,7 +21,7 @@ export const TIPS: readonly Tip[] = [
   'Turn Auto search off in Settings → Behavior if you want the web only via /search',
   'Web search needs no API keys or extra services: Thuki looks up the web zero-setup on your Mac',
   'After a web answer, expand the progress row or use the Sources chips to open citations',
-  '⌘W or Esc hides the window; Thuki keeps running in the background',
+  'Cmd+W or Ctrl+W hides the window; Thuki keeps running in the background',
   'Drop an image onto the bar to attach it and ask questions about what you see',
   'Paste images from your clipboard directly; no need to save to disk first',
   'Click the chip icon to switch between any model you have installed',

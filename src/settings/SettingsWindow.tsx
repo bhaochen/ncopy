@@ -301,15 +301,15 @@ export function SettingsWindow() {
   }, []);
 
   // Keyboard shortcuts scoped to the Settings window.
-  // Cmd+,: re-focus/re-raise (mac convention for "already open").
-  // Cmd+W: hide the window (mac convention for closing a panel).
+  // Cmd+, / Ctrl+,: re-focus/re-raise.
+  // Cmd+W / Ctrl+W: hide the window.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.metaKey && e.key === ',') {
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
         e.preventDefault();
         void getCurrentWindow().setFocus();
       }
-      if (e.metaKey && e.key === 'w') {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
         e.preventDefault();
         void invoke('hide_settings_window');
       }
