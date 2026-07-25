@@ -1,11 +1,12 @@
 //! Captures contextual information at the moment of overlay activation.
 //!
-//! Queries the macOS Accessibility API to detect any currently selected text
-//! and its screen bounds. Falls back gracefully when the focused app does not
-//! fully implement the AX protocol.
+//! macOS queries the Accessibility API (AX) to detect selected text and bounds;
+//! Linux uses a clipboard-based fallback (simulate Ctrl+C, read clipboard,
+//! restore original). Both fall back to an empty context when nothing is
+//! selected or the necessary accessibility tools are absent.
 //!
 //! `ActivationContext` and `calculate_window_position` are cross-platform.
-//! The AX capture implementation is macOS-only.
+//! The capture implementations are platform-specific.
 
 // ─── Cross-platform public types ─────────────────────────────────────────────
 
@@ -44,12 +45,11 @@ impl ActivationContext {
     }
 }
 
-/// Decides what a clipboard poll observed after a synthetic Cmd+C: a
-/// non-empty (post-trim) value means the copy landed. Pulled out of the
-/// macOS-only `clipboard_fallback` as plain, portable logic so it can be unit
-/// tested directly — the pasteboard I/O and key-event simulation around it
-/// require a real OS and can't be.
-#[cfg(any(target_os = "macos", test))]
+/// Decides what a clipboard poll observed after a synthetic Cmd+C (macOS) /
+/// Ctrl+C (Linux): a non-empty (post-trim) value means the copy landed.
+/// Pulled out of the platform-specific `clipboard_fallback` as plain, portable
+/// logic so it can be unit tested directly — the pasteboard I/O and key-event
+/// simulation around it require a real OS and can't be.
 fn copied_text(after: &str) -> Option<String> {
     let trimmed = after.trim();
     if trimmed.is_empty() {
@@ -337,6 +337,98 @@ mod macos {
     }
 }
 
+// ── Linux clipboard-based capture ─────────────────────────────────────────
+
+#[cfg(target_os = "linux")]
+#[cfg_attr(coverage_nightly, coverage(off))]
+mod linux {
+    use super::ActivationContext;
+    use std::io::Write as _;
+
+    /// Reads clipboard using wl-paste (Wayland) or xclip (X11 fallback).
+    fn clipboard_text() -> String {
+        // Prefer wl-paste on Wayland; xclip only on X11.
+        if let Ok(o) = std::process::Command::new("wl-paste").output() {
+            if let Ok(s) = String::from_utf8(o.stdout) {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
+                }
+            }
+        }
+        std::process::Command::new("xclip")
+            .args(["-o", "-selection", "clipboard"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_default()
+    }
+
+    /// Writes text to clipboard via wl-copy (Wayland) or xclip (X11).
+    fn write_clipboard(text: &str) {
+        if let Ok(mut child) = std::process::Command::new("wl-copy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+        {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            let _ = child.wait();
+        } else {
+            let _ = std::process::Command::new("xclip")
+                .args(["-selection", "clipboard"])
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .and_then(|mut child| {
+                    if let Some(stdin) = child.stdin.as_mut() {
+                        let _ = stdin.write_all(text.as_bytes());
+                    }
+                    child.wait()
+                });
+        }
+    }
+
+    /// Simulates Ctrl+C via ydotool (raw keycodes: 29=LEFTCTRL, 46=C).
+    fn simulate_ctrl_c() {
+        let _ = std::process::Command::new("ydotool")
+            .args(["key", "29:1", "46:1", "46:0", "29:0"])
+            .status();
+    }
+
+    /// Clipboard-based fallback: save → clear → Ctrl+C → poll → restore.
+    fn clipboard_fallback() -> Option<String> {
+        let before = clipboard_text();
+        write_clipboard("");
+        simulate_ctrl_c();
+
+        let mut after = String::new();
+        for (i, delay_ms) in [10u64, 20, 40, 65, 80, 100].into_iter().enumerate() {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            after = clipboard_text();
+            if !after.is_empty() {
+                break;
+            }
+            if i == 2 {
+                simulate_ctrl_c();
+            }
+        }
+        // Always restore regardless of outcome.
+        if after != before {
+            write_clipboard(&before);
+        }
+        super::copied_text(&after)
+    }
+
+    pub fn capture() -> ActivationContext {
+        let text = clipboard_fallback();
+        ActivationContext {
+            selected_text: text,
+            bounds: None,
+            mouse_position: None,
+        }
+    }
+}
+
 /// Captures the current activation context at the moment of the hotkey press.
 ///
 /// When `overlay_is_visible` is `true` the hotkey will hide the overlay, so
@@ -352,7 +444,12 @@ pub fn capture_activation_context(overlay_is_visible: bool) -> ActivationContext
         macos::capture()
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::capture()
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         ActivationContext::empty()
     }
