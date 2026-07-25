@@ -2347,6 +2347,7 @@ pub fn build_trace_inner(
 /// instead of the predefined hard-quit that ignores an in-flight download. The
 /// Edit submenu is kept so the ask bar's copy / paste / select-all shortcuts
 /// (which the replaced default menu provided) keep working.
+#[cfg(target_os = "macos")]
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn build_app_menu<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
@@ -2517,21 +2518,18 @@ pub fn run() {
     startup_guard::block_shutdown_signals();
 
     ({
-        let b = tauri::Builder::default();
+        let b = tauri::Builder::default()
+            .plugin(tauri_plugin_updater::Builder::new().build())
+            .plugin(tauri_plugin_dialog::init());
         #[cfg(target_os = "macos")]
-        let b = b.plugin(tauri_nspanel::init());
+        let b = b.menu(build_app_menu);
+        #[cfg(target_os = "macos")]
+        let b = b.on_menu_event(|app, event| {
+            if event.id.as_ref() == "quit" {
+                request_quit(app);
+            }
+        });
         b
-    })
-    .plugin(tauri_plugin_updater::Builder::new().build())
-    .plugin(tauri_plugin_dialog::init())
-    // Replace Tauri's default macOS menu: its predefined Quit does a hard
-    // quit on Cmd+Q that bypasses our handlers. Our custom Quit fires this
-    // handler instead, so a download in flight gets the warning.
-    .menu(build_app_menu)
-    .on_menu_event(|app, event| {
-        if event.id.as_ref() == "quit" {
-            request_quit(app);
-        }
     })
     .setup(|app| {
         #[cfg(target_os = "macos")]
