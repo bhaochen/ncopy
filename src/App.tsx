@@ -859,14 +859,19 @@ function App() {
             'No images found for your search query.');
           return;
         }
-        // Pass hits as structured data (ImageGallery) + minimal prompt to
-        // describe them. The frontend renders the gallery; the model adds text.
+        // Pass hits as structured data (ImageGallery) + minimal prompt for
+        // context. The gallery is rendered by the frontend above the text;
+        // the model provides commentary about the subject.
+        const sources = result.hits
+          .map((h) => h.source)
+          .filter((s, i, a) => a.indexOf(s) === i)
+          .join(', ');
         ask(
           displayContent,
           quotedText,
           undefined,
           undefined,
-          `Above are images found for "${query}". Describe them briefly.\n\nThe images were sourced from: ${result.hits.map((h) => h.source).filter((s, i, a) => a.indexOf(s) === i).join(', ')}.`,
+          `Images matching "${query}" have been displayed above in a gallery (${result.hits.length} results from ${sources}). The user can see them already. Provide context about the subject or answer any related questions. Do not claim you cannot see images — they are displayed by the UI.`,
           undefined,
           undefined,
           undefined,
