@@ -120,6 +120,13 @@ MCP tool integrations (Gmail, Slack, Calendar), voice input, meeting notes, task
 
 Hey, Logan here. I'm building Thuki around how people actually use it, so if you have feedback, an idea, or just want to say hi, [reach out on X](https://x.com/quiet_node). Or [leave your email](https://thuki.app/subscribe) and I'll reach out personally. I read everything.
 
+## Development
+
+```bash
+bun install
+bun run dev
+```
+
 ## License
 
 Copyright 2026 Logan Nguyen. Licensed under the [Apache License, Version 2.0](LICENSE).
