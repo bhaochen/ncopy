@@ -53,6 +53,7 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
   }, [previewIndex, closePreview, goNext, goPrev]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
     const el = trackRef.current;
     if (!el) return;
     el.scrollBy({ left: e.deltaY, behavior: 'instant' });
