@@ -840,6 +840,51 @@ function App() {
   } = useModel(activeModel, handleTurnComplete);
 
   /**
+   * Calls the backend `search_images` command to find images matching `query`,
+   * then submits the results to the model for answering.
+   */
+  const askSearchImage = useCallback(
+    async (
+      query: string,
+      displayContent: string,
+      quotedText?: string,
+    ): Promise<void> => {
+      try {
+        type ImageSearchHit = {
+          title: string;
+          url: string;
+          img_src: string;
+          thumbnail_src: string;
+          source: string;
+        };
+        type ImageSearchResult = {
+          hits: ImageSearchHit[];
+          stats: { name: string; status: string; hit_count: number }[];
+        };
+        const result = await invoke<ImageSearchResult>('search_images', {
+          query,
+        });
+        // Format results as markdown for the model
+        let formatted = `Image search results for "${query}":\n\n`;
+        if (result.hits.length === 0) {
+          formatted += 'No images found.\n';
+        } else {
+          for (const hit of result.hits.slice(0, 20)) {
+            formatted += `- ![${hit.title || 'image'}](${hit.img_src})`;
+            if (hit.title) formatted += ` ${hit.title}`;
+            formatted += `\n  Source: ${hit.url}\n\n`;
+          }
+        }
+        ask(displayContent, quotedText, undefined, undefined, formatted);
+      } catch (e) {
+        console.error('Image search failed:', e);
+        ask(displayContent, quotedText);
+      }
+    },
+    [ask],
+  );
+
+  /**
    * Keep `messagesRef` current so export handlers and auto-save can read a
    * live snapshot without joining the streaming token cadence as a
    * `useCallback` dependency.
@@ -3223,6 +3268,7 @@ function App() {
     const hasScreen = found.has('/screen');
     const hasThink = found.has('/think');
     const hasSearch = found.has('/search');
+    const hasSearchImage = found.has('/searchimage');
     const hasExtract = found.has('/extract');
     const utilityTrigger = Array.from(found).find((t) => {
       const cmd = COMMANDS.find((c) => c.trigger === t);
@@ -3295,6 +3341,30 @@ function App() {
       }
       setAttachedImages([]);
       void askSearch(searchQuery, searchDisplay, searchContext, searchImages);
+      return;
+    }
+
+    // `/searchimage` text-to-image search. Calls search_images Tauri command to
+    // find images matching the query, then presents results to the model.
+    if (hasSearchImage) {
+      const imageQuery = strippedMessage.trim();
+      if (!imageQuery) return;
+      const imageContext = sanitizeContext(
+        selectedContext,
+        quote.maxContextLength,
+      );
+      const displayText = trimmedQuery;
+      setQuery('');
+      setSelectedContext(null);
+      for (const img of attachedImages) {
+        URL.revokeObjectURL(img.blobUrl);
+      }
+      setAttachedImages([]);
+      void askSearchImage(
+        imageQuery,
+        displayText,
+        imageContext,
+      );
       return;
     }
 
@@ -3448,6 +3518,7 @@ function App() {
     setCaptureError,
     ask,
     askSearch,
+    askSearchImage,
     quote.maxContextLength,
     hasBlockingConflict,
     isBuiltinDownloadActive,

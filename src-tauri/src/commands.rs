@@ -2892,6 +2892,24 @@ pub async fn cancel_generation(generation: State<'_, GenerationState>) -> Result
     Ok(())
 }
 
+/// Searches for images matching the given query using SearXNG and Tavily.
+/// Returns image URLs, source pages, and titles.
+#[cfg_attr(coverage_nightly, coverage(off))]
+#[cfg_attr(not(coverage), tauri::command)]
+pub async fn search_images(
+    query: String,
+) -> Result<crate::websearch::image_search::ImageSearchResult, String> {
+    let transport = crate::net::transport::ReqwestTransport::new()
+        .map_err(|e| format!("failed to create transport: {e}"))?;
+    let result = crate::websearch::image_search::search_images(
+        &transport,
+        &query,
+        crate::websearch::engine::global_engine_health(),
+    )
+    .await;
+    Ok(result)
+}
+
 /// Clears the backend conversation history and increments the epoch counter.
 /// The epoch increment prevents any in-flight `ask_model` from writing stale
 /// messages into the freshly cleared history.

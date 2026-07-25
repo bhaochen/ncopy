@@ -3071,6 +3071,8 @@ pub fn run() {
         #[cfg(not(coverage))]
         commands::cancel_generation,
         #[cfg(not(coverage))]
+        commands::search_images,
+        #[cfg(not(coverage))]
         commands::open_url,
         #[cfg(not(coverage))]
         commands::reset_conversation,

@@ -81,6 +81,28 @@ export const COMMANDS: readonly Command[] = [
     },
   },
   {
+    trigger: '/searchimage',
+    label: '/searchimage',
+    description: 'Search images matching a description (text-to-image)',
+    docs: {
+      summary:
+        'Searches for images matching your query using SearXNG (images category) and Tavily (include_images). Returns image URLs and source pages.',
+      usage: '/searchimage <description>',
+      examples: [
+        '`/searchimage cute cats`: finds images of cute cats',
+        '`/searchimage modern architecture Tokyo`: finds photos of modern Tokyo buildings',
+      ],
+      behavior:
+        'Races SearXNG (categories=images) and Tavily (include_images=true) in parallel, fuses their image results, and presents the findings to the model. The model can then describe what it sees in the matched images.',
+    },
+    promptHelp: {
+      summary:
+        'search for images matching a text description.',
+      whenToSuggest:
+        'Mention this when the user wants to find images, photos, or visual references matching a description.',
+    },
+  },
+  {
     trigger: '/extract',
     label: '/extract',
     description: 'Extract all text from screenshots or attached images',

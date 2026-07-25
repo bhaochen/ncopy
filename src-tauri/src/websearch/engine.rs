@@ -86,7 +86,7 @@ const CAPTCHA_MARKERS: &[&str] = &[
 /// Browser User-Agent sent verbatim on every engine request so it is
 /// indistinguishable from a real browser's; keyless SERP endpoints reject
 /// obvious automation. Shared by all engines.
-const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
+pub(crate) const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
      AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const DDG_HTML_ENDPOINT: &str = "https://html.duckduckgo.com/html/";
 const MOJEEK_ENDPOINT: &str = "https://www.mojeek.com/search";
@@ -189,7 +189,7 @@ impl EngineHealth {
 
     /// Whether `name` is inside its cooldown window. Expired entries are pruned
     /// on read so the map self-cleans.
-    fn is_cooling(&self, name: &'static str) -> bool {
+    pub(crate) fn is_cooling(&self, name: &'static str) -> bool {
         let mut map = self.blocked_until.lock().unwrap();
         match map.get(name) {
             Some(until) if *until > std::time::Instant::now() => true,

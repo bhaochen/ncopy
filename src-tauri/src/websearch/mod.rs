@@ -52,6 +52,7 @@ pub mod encyclopedia;
 pub mod engine;
 pub mod evidence;
 pub mod fetch;
+pub mod image_search;
 pub mod judge;
 pub mod lang;
 pub mod news;

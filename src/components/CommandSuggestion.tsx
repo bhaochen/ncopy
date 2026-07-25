@@ -332,11 +332,43 @@ const EXPLAIN_ICON = (
   </svg>
 );
 
+/** Image/landscape icon for /searchimage command. */
+const IMAGE_SEARCH_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <rect
+      x="1.5"
+      y="2"
+      width="13"
+      height="12"
+      rx="1.5"
+      stroke="currentColor"
+      strokeWidth="1.4"
+    />
+    <circle cx="5" cy="5.5" r="1.25" fill="currentColor" />
+    <path
+      d="M1.5 11l3.5-3 2.5 2 3-3 4 4"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 /** Returns the icon for a given command trigger. */
 function iconForTrigger(trigger: string): React.ReactNode {
   switch (trigger) {
     case '/search':
       return SEARCH_ICON;
+    case '/searchimage':
+      return IMAGE_SEARCH_ICON;
     case '/screen':
       return SCREEN_ICON;
     case '/think':
