@@ -60,7 +60,7 @@ export const COMMANDS: readonly Command[] = [
     description: 'Force a live web look-up with citations',
     docs: {
       summary:
-        'Forces a live web look-up and answers with citations (zero-setup).',
+        'Forces a live web look-up and answers with citations (zero-setup). Source pages appear as clickable attribution chips.',
       usage: '/search <question>',
       examples: [
         '`/search who owns Figma now?`: searches live sources for a current answer',
@@ -86,14 +86,14 @@ export const COMMANDS: readonly Command[] = [
     description: 'Search images matching a description (text-to-image)',
     docs: {
       summary:
-        'Searches for images matching your query using SearXNG (images category) and Tavily (include_images). Returns image URLs and source pages.',
+        'Searches for images matching your query. Shows results as an interactive image gallery with clickable source page chips. Uses SearXNG (images category) and Tavily (include_images).',
       usage: '/searchimage <description>',
       examples: [
         '`/searchimage cute cats`: finds images of cute cats',
         '`/searchimage modern architecture Tokyo`: finds photos of modern Tokyo buildings',
       ],
       behavior:
-        'Races SearXNG (categories=images) and Tavily (include_images=true) in parallel, fuses their image results, and presents the findings to the model. The model can then describe what it sees in the matched images.',
+        'Races SearXNG (categories=images) and Tavily (include_images=true) in parallel, fuses their image results, and displays them as a horizontal scrollable gallery. Each thumbnail links back to its source page. Click a thumbnail to preview the full-size image with keyboard navigation. Sources appear as clickable chips below the gallery.',
     },
     promptHelp: {
       summary: 'search for images matching a text description.',

@@ -24,7 +24,7 @@ This means you can highlight text anywhere on screen, summon Thuki with double-t
 
 ## /search
 
-Forces a live web look-up and answers with citations (zero-setup).
+Forces a live web look-up and answers with citations (zero-setup). Source pages appear as clickable attribution chips.
 
 **Usage:** `/search <question>`
 
@@ -40,7 +40,7 @@ Forces a live web look-up and answers with citations (zero-setup).
 
 ## /searchimage
 
-Searches for images matching your query using SearXNG (images category) and Tavily (include_images). Returns image URLs and source pages.
+Searches for images matching your query. Shows results as an interactive image gallery with clickable source page chips. Uses SearXNG (images category) and Tavily (include_images).
 
 **Usage:** `/searchimage <description>`
 
@@ -48,7 +48,7 @@ Searches for images matching your query using SearXNG (images category) and Tavi
 - `/searchimage cute cats`: finds images of cute cats
 - `/searchimage modern architecture Tokyo`: finds photos of modern Tokyo buildings
 
-**Behavior:** Races SearXNG (categories=images) and Tavily (include_images=true) in parallel, fuses their image results, and presents the findings to the model. The model can then describe what it sees in the matched images.
+**Behavior:** Races SearXNG (categories=images) and Tavily (include_images=true) in parallel, fuses their image results, and displays them as a horizontal scrollable gallery. Each thumbnail links back to its source page. Click a thumbnail to preview the full-size image with keyboard navigation. Sources appear as clickable chips below the gallery.
 
 ---
 
