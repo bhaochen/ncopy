@@ -129,7 +129,7 @@ pub struct TokioEngineProcess {
 }
 
 /// Pure: the `llama-server` command line for one spawn:
-/// `-m <model> [--mmproj <p>] --flash-attn 1 --n-gpu-layers 999
+/// `-m <model> [--mmproj <p>] --flash-attn 1
 /// --ctx-size <n> --host 127.0.0.1 --port <p>
 /// --no-webui --parallel 1 --cache-prompt --cache-idle-slots --cache-ram <mib>`.
 fn llama_server_args(args: &SpawnArgs) -> Vec<std::ffi::OsString> {
@@ -143,9 +143,6 @@ fn llama_server_args(args: &SpawnArgs) -> Vec<std::ffi::OsString> {
     // require an explicit value argument (`--flash-attn 1`).
     argv.push("--flash-attn".into());
     argv.push("1".into());
-    // Offload all layers to GPU VRAM when a GPU is available.
-    argv.push("--n-gpu-layers".into());
-    argv.push("999".into());
     argv.push("--ctx-size".into());
     argv.push(args.num_ctx.to_string().into());
     argv.push("--host".into());
@@ -389,8 +386,6 @@ mod tests {
                 "/models/a.gguf",
                 "--flash-attn",
                 "1",
-                "--n-gpu-layers",
-                "999",
                 "--ctx-size",
                 "8192",
                 "--host",
@@ -495,8 +490,6 @@ mod tests {
                 "/models/a.mmproj.gguf",
                 "--flash-attn",
                 "1",
-                "--n-gpu-layers",
-                "999",
                 "--ctx-size",
                 "8192",
                 "--host",

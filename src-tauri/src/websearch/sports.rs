@@ -118,6 +118,8 @@ pub(crate) fn scoreboard_request(sport: &str, league: &str, today: &str) -> Http
         url,
         headers: vec![("User-Agent".to_string(), THUKI_USER_AGENT.to_string())],
         form: Vec::new(),
+        body: None,
+        bypass_ssrf: false,
     }
 }
 

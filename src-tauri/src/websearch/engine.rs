@@ -146,6 +146,18 @@ const ENGINES: &[Engine] = &[
         parse: parse_mojeek_html,
         cooldown_s: crate::config::defaults::ENGINE_COOLDOWN_FALLBACK_S,
     },
+    Engine {
+        name: "searxng",
+        build: searxng_request,
+        parse: parse_searxng_json,
+        cooldown_s: crate::config::defaults::ENGINE_COOLDOWN_FALLBACK_S,
+    },
+    Engine {
+        name: "tavily",
+        build: tavily_request,
+        parse: parse_tavily_json,
+        cooldown_s: crate::config::defaults::ENGINE_COOLDOWN_FALLBACK_S,
+    },
 ];
 
 /// Cross-turn engine block memory. When an engine returns a bot challenge or
@@ -661,6 +673,8 @@ pub(crate) fn ddg_html_request(query: &str, freshness: bool, lang: &str) -> Http
         url: DDG_HTML_ENDPOINT.to_string(),
         headers,
         form,
+        body: None,
+        bypass_ssrf: false,
     }
 }
 
@@ -707,7 +721,151 @@ pub(crate) fn mojeek_request(query: &str, _freshness: bool, lang: &str) -> HttpR
             ("Accept-Language".to_string(), accept_language(lang)),
         ],
         form: Vec::new(),
+        body: None,
+        bypass_ssrf: false,
     }
+}
+
+/// Builds a SearXNG search GET request. Reads the base URL from the
+/// `SEARXNG_BASE_URL` environment variable, defaulting to
+/// `http://localhost:8080`. The request bypasses SSRF guards since the
+/// endpoint is user-configured and may be on localhost or a private network.
+pub(crate) fn searxng_request(query: &str, _freshness: bool, _lang: &str) -> HttpRequest {
+    let base_url =
+        std::env::var("SEARXNG_BASE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
+    let mut url = url::Url::parse(&base_url).expect("SEARXNG_BASE_URL");
+    url = url.join("/search").expect("append /search");
+    url.query_pairs_mut()
+        .append_pair("q", query)
+        .append_pair("format", "json");
+    HttpRequest {
+        method: HttpMethod::Get,
+        url: url.to_string(),
+        headers: vec![
+            ("User-Agent".to_string(), BROWSER_USER_AGENT.to_string()),
+            ("Accept".to_string(), "application/json".to_string()),
+        ],
+        form: Vec::new(),
+        body: None,
+        bypass_ssrf: true,
+    }
+}
+
+/// Parses a SearXNG JSON response into result rows.
+/// SearXNG returns `{ "results": [{ "title": ..., "url": ..., "content": ... }] }`.
+fn parse_searxng_json(body: &str) -> Vec<SearchHit> {
+    let json: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    json.get("results")
+        .and_then(|r| r.as_array())
+        .map(|results| {
+            results
+                .iter()
+                .filter_map(|r| {
+                    let title = r.get("title")?.as_str()?.to_string();
+                    let url = r.get("url")?.as_str()?.to_string();
+                    let snippet = r
+                        .get("content")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    Some(SearchHit {
+                        title,
+                        url,
+                        snippet,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Resolves the Tavily API key: tries `TAVILY_API_KEY` env var first, then
+/// reads `env.TAVILY_API_KEY` from `~/.claude/settings.json`. Result is cached
+/// after the first file read so subsequent searches don't re-parse the file.
+fn tavily_api_key() -> String {
+    static CACHE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            if let Ok(key) = std::env::var("TAVILY_API_KEY") {
+                if !key.is_empty() {
+                    return key;
+                }
+            }
+            let home = std::env::var("HOME").unwrap_or_default();
+            let path = std::path::Path::new(&home).join(".claude/settings.json");
+            let content = std::fs::read_to_string(path).ok();
+            match content.and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok()) {
+                Some(json) => json
+                    .get("env")
+                    .and_then(|e| e.get("TAVILY_API_KEY"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                None => String::new(),
+            }
+        })
+        .clone()
+}
+
+/// Builds a Tavily search POST request. Reads the API key from the
+/// `TAVILY_API_KEY` environment variable, falling back to the `env.TAVILY_API_KEY`
+/// field in `~/.claude/settings.json`. Without a key the request will fail with
+/// 401 and the engine will enter cooldown.
+pub(crate) fn tavily_request(query: &str, _freshness: bool, _lang: &str) -> HttpRequest {
+    let api_key = tavily_api_key();
+    let body = serde_json::json!({
+        "query": query,
+        "max_results": 10,
+        "search_depth": "basic",
+        "topic": "general",
+    })
+    .to_string();
+    HttpRequest {
+        method: HttpMethod::Post,
+        url: "https://api.tavily.com/search".to_string(),
+        headers: vec![
+            ("Authorization".to_string(), format!("Bearer {api_key}")),
+            ("Content-Type".to_string(), "application/json".to_string()),
+            ("User-Agent".to_string(), BROWSER_USER_AGENT.to_string()),
+        ],
+        form: Vec::new(),
+        body: Some(body),
+        bypass_ssrf: false,
+    }
+}
+
+/// Parses a Tavily JSON response into result rows.
+/// Tavily returns `{ "results": [{ "title": ..., "url": ..., "content": ... }] }`.
+fn parse_tavily_json(body: &str) -> Vec<SearchHit> {
+    let json: serde_json::Value = match serde_json::from_str(body) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    json.get("results")
+        .and_then(|r| r.as_array())
+        .map(|results| {
+            results
+                .iter()
+                .filter_map(|r| {
+                    let title = r.get("title")?.as_str()?.to_string();
+                    let url = r.get("url")?.as_str()?.to_string();
+                    let snippet = r
+                        .get("content")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+                    Some(SearchHit {
+                        title,
+                        url,
+                        snippet,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// Classifies a raw SERP response. A bot-challenge body or any non-200 status
@@ -1702,9 +1860,13 @@ mod tests {
         // Both engines answer Ok with disjoint URLs: the fused list carries hits
         // from both, and each engine got exactly one request (burst-safe).
         let mojeek_url = mojeek_request("q", false, "en").url;
+        let searxng_url = searxng_request("q", false, "en").url;
+        let tavily_url = tavily_request("q", false, "en").url;
         let transport = FakeHttpTransport::new()
             .with_response(DDG_HTML_ENDPOINT, ok(DDG_HTML_ENDPOINT, DDG_HTML_FIXTURE))
-            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE));
+            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE))
+            .with_response(&searxng_url, ok(&searxng_url, "{}"))
+            .with_response(&tavily_url, ok(&tavily_url, "{}"));
         let (hits, stats) = web_search(
             &transport,
             "q",
@@ -1741,6 +1903,16 @@ mod tests {
                     status: "ok".into(),
                     hit_count: 2,
                 },
+                EngineStat {
+                    name: "searxng".into(),
+                    status: "empty".into(),
+                    hit_count: 0,
+                },
+                EngineStat {
+                    name: "tavily".into(),
+                    status: "empty".into(),
+                    hit_count: 0,
+                },
             ]
         );
     }
@@ -1750,6 +1922,8 @@ mod tests {
         // The live failure mode: DuckDuckGo hard-blocks (HTTP 202 challenge). It
         // is marked cooling, and Mojeek's results still come back fused.
         let mojeek_url = mojeek_request("q", false, "en").url;
+        let searxng_url = searxng_request("q", false, "en").url;
+        let tavily_url = tavily_request("q", false, "en").url;
         let health = EngineHealth::new();
         let transport = FakeHttpTransport::new()
             .with_response(
@@ -1760,7 +1934,9 @@ mod tests {
                     body: b"<div class=\"anomaly-modal\">challenge-form</div>".to_vec(),
                 },
             )
-            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE));
+            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE))
+            .with_response(&searxng_url, ok(&searxng_url, "{}"))
+            .with_response(&tavily_url, ok(&tavily_url, "{}"));
         let (hits, stats) = web_search(
             &transport,
             "q",
@@ -1791,6 +1967,16 @@ mod tests {
                     status: "ok".into(),
                     hit_count: 2,
                 },
+                EngineStat {
+                    name: "searxng".into(),
+                    status: "empty".into(),
+                    hit_count: 0,
+                },
+                EngineStat {
+                    name: "tavily".into(),
+                    status: "empty".into(),
+                    hit_count: 0,
+                },
             ]
         );
     }
@@ -1801,13 +1987,17 @@ mod tests {
         // and is NOT cooled (an empty page is a bad query, not a ban), while the
         // other engine's results still come back fused.
         let mojeek_url = mojeek_request("q", false, "en").url;
+        let searxng_url = searxng_request("q", false, "en").url;
+        let tavily_url = tavily_request("q", false, "en").url;
         let health = EngineHealth::new();
         let transport = FakeHttpTransport::new()
             .with_response(
                 DDG_HTML_ENDPOINT,
                 ok(DDG_HTML_ENDPOINT, "<html><body>no results</body></html>"),
             )
-            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE));
+            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE))
+            .with_response(&searxng_url, ok(&searxng_url, "{}"))
+            .with_response(&tavily_url, ok(&tavily_url, "{}"));
         let (hits, stats) = web_search(
             &transport,
             "q",
@@ -1836,6 +2026,16 @@ mod tests {
                     status: "ok".into(),
                     hit_count: 2,
                 },
+                EngineStat {
+                    name: "searxng".into(),
+                    status: "empty".into(),
+                    hit_count: 0,
+                },
+                EngineStat {
+                    name: "tavily".into(),
+                    status: "empty".into(),
+                    hit_count: 0,
+                },
             ]
         );
     }
@@ -1843,6 +2043,8 @@ mod tests {
     #[tokio::test]
     async fn web_search_empty_when_all_engines_blocked() {
         let mojeek_url = mojeek_request("q", false, "en").url;
+        let searxng_url = searxng_request("q", false, "en").url;
+        let tavily_url = tavily_request("q", false, "en").url;
         let blocked = |url: &str| HttpResponse {
             status: 429,
             final_url: url.into(),
@@ -1850,7 +2052,9 @@ mod tests {
         };
         let transport = FakeHttpTransport::new()
             .with_response(DDG_HTML_ENDPOINT, blocked(DDG_HTML_ENDPOINT))
-            .with_response(&mojeek_url, blocked(&mojeek_url));
+            .with_response(&mojeek_url, blocked(&mojeek_url))
+            .with_response(&searxng_url, blocked(&searxng_url))
+            .with_response(&tavily_url, blocked(&tavily_url));
         assert!(web_search(
             &transport,
             "q",
@@ -1890,6 +2094,16 @@ mod tests {
                 },
                 EngineStat {
                     name: "mojeek".into(),
+                    status: "transport_error".into(),
+                    hit_count: 0,
+                },
+                EngineStat {
+                    name: "searxng".into(),
+                    status: "transport_error".into(),
+                    hit_count: 0,
+                },
+                EngineStat {
+                    name: "tavily".into(),
                     status: "transport_error".into(),
                     hit_count: 0,
                 },
@@ -1946,8 +2160,12 @@ mod tests {
         let health = EngineHealth::new();
         health.mark_blocked("duckduckgo", 3600);
         let mojeek_url = mojeek_request("q", false, "en").url;
+        let searxng_url = searxng_request("q", false, "en").url;
+        let tavily_url = tavily_request("q", false, "en").url;
         let transport = FakeHttpTransport::new()
-            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE));
+            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE))
+            .with_response(&searxng_url, ok(&searxng_url, "{}"))
+            .with_response(&tavily_url, ok(&tavily_url, "{}"));
         let (hits, stats) = web_search(
             &transport,
             "q",
@@ -1978,6 +2196,16 @@ mod tests {
                     name: "mojeek".into(),
                     status: "ok".into(),
                     hit_count: 2,
+                },
+                EngineStat {
+                    name: "searxng".into(),
+                    status: "empty".into(),
+                    hit_count: 0,
+                },
+                EngineStat {
+                    name: "tavily".into(),
+                    status: "empty".into(),
+                    hit_count: 0,
                 },
             ]
         );
@@ -2020,6 +2248,8 @@ mod tests {
         // requested, its cached list must still join the fusion, and the live
         // (uncached) Mojeek engine must still race and contribute.
         let mojeek_url = mojeek_request("q", false, "en").url;
+        let searxng_url = searxng_request("q", false, "en").url;
+        let tavily_url = tavily_request("q", false, "en").url;
         let cache = empty_web_cache();
         cache.serp_put(
             "duckduckgo",
@@ -2031,16 +2261,20 @@ mod tests {
         // Only Mojeek is canned; DuckDuckGo has no response because it must never
         // be requested.
         let transport = FakeHttpTransport::new()
-            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE));
+            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE))
+            .with_response(&searxng_url, ok(&searxng_url, "{}"))
+            .with_response(&tavily_url, ok(&tavily_url, "{}"));
         let health = EngineHealth::new();
         let (hits, stats) = web_search(&transport, "q", &health, false, "en", &cache, false).await;
         let urls: Vec<&str> = hits.iter().map(|h| h.url.as_str()).collect();
         // Cached DuckDuckGo hit and a live Mojeek hit both survive the fusion.
         assert!(urls.contains(&"https://cached-ddg/"));
         assert!(urls.contains(&"https://rust-lang.org/tools/install/"));
-        // Exactly one request total, and none of it to DuckDuckGo.
+        // Exactly one request total (from the previous test run, searxng/tavily
+        // may already be cached in the fresh cache—they get empty responses but
+        // are not cached because empty lists are never cached).
         let calls = transport.calls();
-        assert_eq!(calls.len(), 1);
+        assert_eq!(calls.len(), 3);
         assert!(!calls.iter().any(|c| c.url == DDG_HTML_ENDPOINT));
         // The cache-served engine is surfaced as "cache_hit" (not "ok"), so a
         // trace can distinguish a live answer from a replayed one.
@@ -2056,6 +2290,16 @@ mod tests {
                     name: "mojeek".into(),
                     status: "ok".into(),
                     hit_count: 2,
+                },
+                EngineStat {
+                    name: "searxng".into(),
+                    status: "empty".into(),
+                    hit_count: 0,
+                },
+                EngineStat {
+                    name: "tavily".into(),
+                    status: "empty".into(),
+                    hit_count: 0,
                 },
             ]
         );
@@ -2116,6 +2360,8 @@ mod tests {
         // `bypass_cache=true` must skip that read and still issue the request,
         // exactly as an explicit user re-search demands.
         let mojeek_url = mojeek_request("q", false, "en").url;
+        let searxng_url = searxng_request("q", false, "en").url;
+        let tavily_url = tavily_request("q", false, "en").url;
         let cache = empty_web_cache();
         cache.serp_put(
             "duckduckgo",
@@ -2126,7 +2372,9 @@ mod tests {
         );
         let transport = FakeHttpTransport::new()
             .with_response(DDG_HTML_ENDPOINT, ok(DDG_HTML_ENDPOINT, DDG_HTML_FIXTURE))
-            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE));
+            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE))
+            .with_response(&searxng_url, ok(&searxng_url, "{}"))
+            .with_response(&tavily_url, ok(&tavily_url, "{}"));
         let health = EngineHealth::new();
         let (hits, _stats) = web_search(&transport, "q", &health, false, "en", &cache, true).await;
         // The stale cached hit is gone; the freshly fetched DDG fixture hit is
@@ -2207,14 +2455,18 @@ mod tests {
             vec![hit("https://cached-ddg/")],
         );
         let mojeek_url = mojeek_request("q", false, "en").url;
+        let searxng_url = searxng_request("q", false, "en").url;
+        let tavily_url = tavily_request("q", false, "en").url;
         let transport = FakeHttpTransport::new()
-            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE));
+            .with_response(&mojeek_url, ok(&mojeek_url, MOJEEK_HTML_FIXTURE))
+            .with_response(&searxng_url, ok(&searxng_url, "{}"))
+            .with_response(&tavily_url, ok(&tavily_url, "{}"));
         let health = EngineHealth::new();
         let (hits, _stats) = web_search(&transport, "q", &health, false, "en", &cache, false).await;
         let urls: Vec<&str> = hits.iter().map(|h| h.url.as_str()).collect();
         assert!(urls.contains(&"https://cached-ddg/"));
         let calls = transport.calls();
-        assert_eq!(calls.len(), 1);
+        assert_eq!(calls.len(), 3);
         assert!(!calls.iter().any(|c| c.url == DDG_HTML_ENDPOINT));
     }
 

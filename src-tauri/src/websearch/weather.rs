@@ -300,6 +300,8 @@ pub(crate) fn geocode_request(location: &str, lang: &str) -> HttpRequest {
         url: url.to_string(),
         headers: vec![("User-Agent".to_string(), THUKI_USER_AGENT.to_string())],
         form: Vec::new(),
+        body: None,
+        bypass_ssrf: false,
     }
 }
 
@@ -348,6 +350,8 @@ pub(crate) fn forecast_request(place: &GeoPlace) -> HttpRequest {
         url: url.to_string(),
         headers: vec![("User-Agent".to_string(), THUKI_USER_AGENT.to_string())],
         form: Vec::new(),
+        body: None,
+        bypass_ssrf: false,
     }
 }
 

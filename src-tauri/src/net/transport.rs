@@ -39,13 +39,18 @@ pub enum HttpMethod {
 
 /// A fully-specified outbound request. `form` is sent as an
 /// `application/x-www-form-urlencoded` body for [`HttpMethod::Post`] and
-/// ignored otherwise.
+/// ignored otherwise. When `body` is `Some`, it is sent as the raw request
+/// body (with `Content-Type` expected in `headers`) instead of `form`.
+/// `bypass_ssrf` skips the SSRF guard for local/internal endpoints (e.g.
+/// a self-hosted SearXNG instance on localhost).
 #[derive(Debug, Clone)]
 pub struct HttpRequest {
     pub method: HttpMethod,
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub form: Vec<(String, String)>,
+    pub body: Option<String>,
+    pub bypass_ssrf: bool,
 }
 
 impl HttpRequest {
@@ -56,6 +61,8 @@ impl HttpRequest {
             url: url.into(),
             headers: Vec::new(),
             form: Vec::new(),
+            body: None,
+            bypass_ssrf: false,
         }
     }
 }
@@ -241,19 +248,21 @@ pub(crate) async fn send_with_retry(
 
 // ─── reqwest backend (thin wrapper, excluded from coverage) ──────────────────
 
-/// Production [`HttpTransport`] over a single pooled reqwest client wired with
-/// the no-proxy, pinning-resolver, guarded-redirect, and gzip policy described
-/// in the module docs. Excluded from the coverage gate: every method is thin
+/// Production [`HttpTransport`] over a pooled reqwest client wired with the
+/// no-proxy, pinning-resolver, guarded-redirect, and gzip policy described in
+/// the module docs, plus a secondary client for internal/local endpoints that
+/// bypasses SSRF guards. Excluded from the coverage gate: every method is thin
 /// OS/network glue delegating to the pure helpers above and to
 /// [`PinningResolver`], which are tested directly.
 pub struct ReqwestTransport {
     client: reqwest::Client,
+    internal_client: reqwest::Client,
 }
 
 #[cfg_attr(coverage_nightly, coverage(off))]
 impl ReqwestTransport {
-    /// Builds the guarded client. Fails only if reqwest cannot construct its
-    /// TLS/connection backend.
+    /// Builds the guarded client and an internal (SSRF-bypass) client. Fails
+    /// only if reqwest cannot construct its TLS/connection backend.
     pub fn new() -> Result<Self, TransportError> {
         use crate::config::defaults::{
             HTTP_CONNECT_TIMEOUT_S, HTTP_REQUEST_TIMEOUT_S, MAX_HTTP_REDIRECTS,
@@ -276,7 +285,17 @@ impl ReqwestTransport {
             }))
             .build()
             .map_err(|e| TransportError::Request(e.to_string()))?;
-        Ok(Self { client })
+        let internal_client = reqwest::Client::builder()
+            .no_proxy()
+            .gzip(true)
+            .connect_timeout(Duration::from_secs(HTTP_CONNECT_TIMEOUT_S))
+            .timeout(Duration::from_secs(HTTP_REQUEST_TIMEOUT_S))
+            .build()
+            .map_err(|e| TransportError::Request(e.to_string()))?;
+        Ok(Self {
+            client,
+            internal_client,
+        })
     }
 }
 
@@ -284,16 +303,32 @@ impl ReqwestTransport {
 #[async_trait]
 impl HttpTransport for ReqwestTransport {
     async fn send(&self, req: &HttpRequest) -> Result<HttpResponse, TransportError> {
-        let url = parse_and_validate(&req.url)?;
+        let client = if req.bypass_ssrf {
+            &self.internal_client
+        } else {
+            &self.client
+        };
+        let url = if req.bypass_ssrf {
+            url::Url::parse(&req.url).map_err(|e| TransportError::InvalidUrl(e.to_string()))?
+        } else {
+            parse_and_validate(&req.url)?
+        };
         let mut builder = match req.method {
-            HttpMethod::Get => self.client.get(url),
-            HttpMethod::Post => self.client.post(url),
+            HttpMethod::Get => client.get(url.clone()),
+            HttpMethod::Post => client.post(url.clone()),
         };
         for (name, value) in &req.headers {
-            builder = builder.header(name, value);
+            builder = builder.header(name.as_str(), value.as_str());
         }
-        if req.method == HttpMethod::Post {
-            builder = builder.form(&req.form);
+        match &req.body {
+            Some(body) => {
+                builder = builder.body(body.clone());
+            }
+            None => {
+                if req.method == HttpMethod::Post {
+                    builder = builder.form(&req.form);
+                }
+            }
         }
         let resp = builder
             .send()
