@@ -92,15 +92,23 @@ pub async fn capture_screenshot_command(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        // On Linux, use gnome-screenshot or similar
-        // First try gnome-screenshot, fall back to spectacle
-        let gnome = std::process::Command::new("gnome-screenshot")
-            .args(["-a", "-f", path_str])
+        // Try grim+slurp (Wayland/Hyprland), then ImageMagick import,
+        // then GNOME/KDE screenshot tools as fallback.
+        let grim = std::process::Command::new("sh")
+            .args(["-c", &format!("grim -g \"$(slurp)\" {path_str}")])
             .status();
-        if gnome.is_err() || gnome.map_or(true, |s| !s.success()) {
-            let _ = std::process::Command::new("spectacle")
-                .args(["-r", "-b", "-n", "-o", path_str])
-                .status();
+        if grim.is_err() || grim.map_or(true, |s| !s.success()) {
+            let import = std::process::Command::new("import").arg(path_str).status();
+            if import.is_err() || import.map_or(true, |s| !s.success()) {
+                let gnome = std::process::Command::new("gnome-screenshot")
+                    .args(["-a", "-f", path_str])
+                    .status();
+                if gnome.is_err() || gnome.map_or(true, |s| !s.success()) {
+                    let _ = std::process::Command::new("spectacle")
+                        .args(["-r", "-b", "-n", "-o", path_str])
+                        .status();
+                }
+            }
         }
     }
 
