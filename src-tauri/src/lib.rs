@@ -1214,7 +1214,6 @@ fn set_window_frame(app_handle: tauri::AppHandle, x: f64, y: f64, width: f64, he
 ///
 /// `cur` is `(origin_x, origin_y, width, height)`; the return is the same shape
 /// for the target frame.
-#[cfg(any(target_os = "macos", test))]
 fn compute_top_left_anchored_target(
     cur: (f64, f64, f64, f64),
     w: f64,
@@ -1245,14 +1244,14 @@ fn animate_overlay_frame(app_handle: tauri::AppHandle, width: f64, height: f64, 
     if !width.is_finite() || !height.is_finite() || width <= 0.0 || height <= 0.0 {
         return;
     }
-    let duration_ms = if duration_ms.is_finite() {
-        duration_ms.clamp(0.0, 2000.0)
-    } else {
-        0.0
-    };
 
     #[cfg(target_os = "macos")]
     {
+        let duration_ms = if duration_ms.is_finite() {
+            duration_ms.clamp(0.0, 2000.0)
+        } else {
+            0.0
+        };
         use objc2::encode::{Encode, Encoding, RefEncode};
         use objc2::rc::autoreleasepool;
         use objc2::runtime::AnyObject;
@@ -1346,7 +1345,30 @@ fn animate_overlay_frame(app_handle: tauri::AppHandle, width: f64, height: f64, 
 
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app_handle, width, height, duration_ms);
+        let _ = duration_ms;
+        let handle = app_handle.clone();
+        let _ = app_handle.run_on_main_thread(move || {
+            if let Some(window) = handle.get_webview_window("main") {
+                use tauri::LogicalPosition;
+                use tauri::LogicalSize;
+                use tauri::Position;
+                use tauri::Size;
+                if let Ok(pos) = window.outer_position() {
+                    if let Ok(size) = window.outer_size() {
+                        let (_nx, ny, _nw, _nh) = compute_top_left_anchored_target(
+                            (pos.x as f64, pos.y as f64, size.width as f64, size.height as f64),
+                            width,
+                            height,
+                        );
+                        let _ = window.set_position(Position::Logical(LogicalPosition::new(
+                            pos.x as f64,
+                            ny,
+                        )));
+                    }
+                }
+                let _ = window.set_size(Size::Logical(LogicalSize::new(width, height)));
+            }
+        });
     }
 }
 
