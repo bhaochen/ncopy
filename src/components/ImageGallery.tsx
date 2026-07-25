@@ -52,18 +52,25 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
     return () => window.removeEventListener('keydown', handler);
   }, [previewIndex, closePreview, goNext, goPrev]);
 
-  const onWheel = useCallback((e: React.WheelEvent) => {
+  const onWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     const el = trackRef.current;
     if (!el) return;
     el.scrollBy({ left: e.deltaY, behavior: 'instant' });
   }, []);
 
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [onWheel]);
+
   if (goodHits.length === 0) return null;
 
   return (
     <div className={styles.wrapper}>
-      <div className={styles.track} ref={trackRef} onWheel={onWheel}>
+      <div className={styles.track} ref={trackRef}>
         {goodHits.map((hit, i) => (
           <button
             key={hit.img_src}
