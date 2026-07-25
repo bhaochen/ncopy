@@ -855,8 +855,13 @@ function App() {
           query,
         });
         if (result.hits.length === 0) {
-          ask(displayContent, quotedText, undefined, undefined,
-            'No images found for your search query.');
+          ask(
+            displayContent,
+            quotedText,
+            undefined,
+            undefined,
+            'No images found for your search query.',
+          );
           return;
         }
         // Pass hits as structured data (ImageGallery) + minimal prompt for
@@ -3363,11 +3368,7 @@ function App() {
         URL.revokeObjectURL(img.blobUrl);
       }
       setAttachedImages([]);
-      void askSearchImage(
-        imageQuery,
-        displayText,
-        imageContext,
-      );
+      void askSearchImage(imageQuery, displayText, imageContext);
       return;
     }
 

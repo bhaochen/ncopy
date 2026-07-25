@@ -1,6 +1,10 @@
 import { useCallback, useRef, useState } from 'react';
 import { Channel, invoke } from '@tauri-apps/api/core';
-import type { SearchResultPreview, SearchStage, ImageSearchHit } from '../types/search';
+import type {
+  SearchResultPreview,
+  SearchStage,
+  ImageSearchHit,
+} from '../types/search';
 
 /**
  * Why a wanted web search produced no citable answer. Mirrors the Rust

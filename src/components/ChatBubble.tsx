@@ -12,7 +12,11 @@ import { formatQuotedText } from '../utils/formatQuote';
 import { useConfig } from '../contexts/ConfigContext';
 import { COMMANDS, SCREEN_CAPTURE_PLACEHOLDER } from '../config/commands';
 import type { EngineErrorKind, SearchFailReason } from '../hooks/useModel';
-import type { ImageSearchHit, SearchResultPreview, SearchStage } from '../types/search';
+import type {
+  ImageSearchHit,
+  SearchResultPreview,
+  SearchStage,
+} from '../types/search';
 import { SearchProgressBlock } from './SearchProgressBlock';
 import { SourceAttribution } from './SourceAttribution';
 import { avatarColor, domainOf } from '../utils/domainAvatar';

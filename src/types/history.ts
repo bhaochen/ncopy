@@ -1,5 +1,7 @@
 /* v8 ignore file -- type-only declarations, no runtime code */
 
+import type { ImageSearchHit } from './search';
+
 /**
  * TypeScript mirror of the Rust `ConversationSummary` struct in `database.rs`.
  * Used for rendering conversation list items in the history panel.
@@ -40,6 +42,9 @@ export interface PersistedMessage {
   /** Ollama model slug attributed to this message. Null for user messages
    *  and legacy messages written before the model_name migration. */
   model_name: string | null;
+  /** JSON-encoded `ImageSearchHit[]` for `/searchimage` assistant messages.
+   *  Null for other messages. */
+  image_search_hits: string | null;
   /** Unix timestamp (seconds) the message was created. */
   created_at: number;
 }
@@ -72,4 +77,6 @@ export interface SaveMessagePayload {
   /** Ollama model slug that produced this response. Null for user messages
    *  and messages from pre-migration conversations. */
   model_name: string | null;
+  /** Image search hits from `/searchimage`. Null for other messages. */
+  image_search_hits: ImageSearchHit[] | null;
 }

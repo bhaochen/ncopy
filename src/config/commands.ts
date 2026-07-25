@@ -96,8 +96,7 @@ export const COMMANDS: readonly Command[] = [
         'Races SearXNG (categories=images) and Tavily (include_images=true) in parallel, fuses their image results, and presents the findings to the model. The model can then describe what it sees in the matched images.',
     },
     promptHelp: {
-      summary:
-        'search for images matching a text description.',
+      summary: 'search for images matching a text description.',
       whenToSuggest:
         'Mention this when the user wants to find images, photos, or visual references matching a description.',
     },

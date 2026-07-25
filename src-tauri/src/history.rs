@@ -34,6 +34,17 @@ pub struct SaveSearchSource {
     pub attribution: Option<String>,
 }
 
+/// Image search hit sent by the frontend when saving a `/searchimage`
+/// assistant message. Mirrors the frontend `ImageSearchHit`.
+#[derive(Clone, Deserialize, Serialize)]
+pub struct SaveImageSearchHit {
+    pub title: String,
+    pub url: String,
+    pub img_src: String,
+    pub thumbnail_src: String,
+    pub source: String,
+}
+
 /// Message payload sent from the frontend when saving a conversation.
 #[derive(Deserialize)]
 pub struct SaveMessagePayload {
@@ -49,6 +60,9 @@ pub struct SaveMessagePayload {
     /// assistant payloads with the active model at generation time; `None`
     /// for user payloads. Accepted as missing via serde Option default.
     pub model_name: Option<String>,
+    /// Image search hits from `/searchimage`. JSON-serialized before writing
+    /// to the `messages.image_search_hits` column.
+    pub image_search_hits: Option<Vec<SaveImageSearchHit>>,
 }
 
 /// Response returned when saving a conversation.
@@ -107,6 +121,10 @@ pub fn save_conversation(
                 serde_json::to_string(&v)
                     .expect("Vec<SaveSearchSource> serialization is infallible")
             });
+            let hits_json = m.image_search_hits.filter(|v| !v.is_empty()).map(|v| {
+                serde_json::to_string(&v)
+                    .expect("Vec<SaveImageSearchHit> serialization is infallible")
+            });
             (
                 m.role,
                 m.content,
@@ -115,6 +133,7 @@ pub fn save_conversation(
                 m.thinking_content,
                 sources_json,
                 m.model_name,
+                hits_json,
             )
         })
         .collect();
@@ -137,6 +156,7 @@ pub fn persist_message(
     thinking_content: Option<String>,
     search_sources: Option<Vec<SaveSearchSource>>,
     model_name: Option<String>,
+    image_search_hits: Option<Vec<SaveImageSearchHit>>,
     db: State<'_, Database>,
 ) -> Result<(), String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -145,6 +165,9 @@ pub fn persist_message(
         .map(|v| serde_json::to_string(&v).expect("Vec<String> serialization is infallible"));
     let sources_json = search_sources.filter(|v| !v.is_empty()).map(|v| {
         serde_json::to_string(&v).expect("Vec<SaveSearchSource> serialization is infallible")
+    });
+    let hits_json = image_search_hits.filter(|v| !v.is_empty()).map(|v| {
+        serde_json::to_string(&v).expect("Vec<SaveImageSearchHit> serialization is infallible")
     });
     database::insert_message(
         &conn,
@@ -156,6 +179,7 @@ pub fn persist_message(
         thinking_content.as_deref(),
         sources_json.as_deref(),
         model_name.as_deref(),
+        hits_json.as_deref(),
     )
     .map_err(|e| e.to_string())?;
     Ok(())
@@ -690,6 +714,7 @@ mod tests {
                 thinking_content: None,
                 search_sources: None,
                 model_name: None,
+                image_search_hits: None,
             },
             SaveMessagePayload {
                 role: "assistant".to_string(),
@@ -710,6 +735,7 @@ mod tests {
                     },
                 ]),
                 model_name: Some("gemma4:e2b".to_string()),
+                image_search_hits: None,
             },
         ];
 
@@ -733,6 +759,10 @@ mod tests {
                     serde_json::to_string(&v)
                         .expect("Vec<SaveSearchSource> serialization is infallible")
                 });
+                let hits_json = m.image_search_hits.filter(|v| !v.is_empty()).map(|v| {
+                    serde_json::to_string(&v)
+                        .expect("Vec<SaveImageSearchHit> serialization is infallible")
+                });
                 (
                     m.role,
                     m.content,
@@ -741,6 +771,7 @@ mod tests {
                     m.thinking_content,
                     sources_json,
                     m.model_name,
+                    hits_json,
                 )
             })
             .collect();
@@ -992,6 +1023,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
             conn.execute(
@@ -1048,6 +1080,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
             database::insert_message(
@@ -1058,6 +1091,7 @@ mod tests {
                 None,
                 None,
                 Some("think"),
+                None,
                 None,
                 None,
             )
@@ -1091,6 +1125,7 @@ mod tests {
                 "ab", // 2 chars
                 None,
                 Some(&paths_json),
+                None,
                 None,
                 None,
                 None,

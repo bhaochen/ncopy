@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import type { Message } from './useModel';
-import type { SearchResultPreview } from '../types/search';
+import type { SearchResultPreview, ImageSearchHit } from '../types/search';
 import type {
   ConversationSummary,
   PersistedMessage,
@@ -37,6 +37,7 @@ function toPayload(msg: Message): SaveMessagePayload {
     thinking_content: msg.thinkingContent ?? null,
     search_sources: msg.searchSources ?? null,
     model_name: msg.modelName ?? null,
+    image_search_hits: msg.imageSearchHits ?? null,
   };
 }
 
@@ -50,6 +51,9 @@ function fromPersisted(msg: PersistedMessage): Message {
     : undefined;
   const searchSources = msg.search_sources
     ? (JSON.parse(msg.search_sources) as SearchResultPreview[])
+    : undefined;
+  const imageHits = msg.image_search_hits
+    ? (JSON.parse(msg.image_search_hits) as ImageSearchHit[])
     : undefined;
   return {
     id: msg.id,
@@ -65,6 +69,7 @@ function fromPersisted(msg: PersistedMessage): Message {
         ? true
         : undefined,
     modelName: msg.model_name ?? undefined,
+    imageSearchHits: imageHits && imageHits.length > 0 ? imageHits : undefined,
   };
 }
 
@@ -219,6 +224,7 @@ export function useConversationHistory() {
           thinkingContent: null,
           searchSources: null,
           modelName: null,
+          imageSearchHits: null,
         }),
         invoke('persist_message', {
           conversationId: id,
@@ -229,6 +235,7 @@ export function useConversationHistory() {
           thinkingContent: assistantMsg.thinkingContent ?? null,
           searchSources: assistantMsg.searchSources ?? null,
           modelName: assistantMsg.modelName ?? null,
+          imageSearchHits: assistantMsg.imageSearchHits ?? null,
         }),
       ]);
     },
@@ -256,6 +263,7 @@ export function useConversationHistory() {
         thinkingContent: assistantMsg.thinkingContent ?? null,
         searchSources: assistantMsg.searchSources ?? null,
         modelName: assistantMsg.modelName ?? null,
+        imageSearchHits: assistantMsg.imageSearchHits ?? null,
       });
     },
     [],

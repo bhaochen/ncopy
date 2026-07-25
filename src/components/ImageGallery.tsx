@@ -38,9 +38,7 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
   }, [goodHits.length]);
 
   const goPrev = useCallback(() => {
-    setPreviewIndex((prev) =>
-      prev !== null ? Math.max(prev - 1, 0) : null,
-    );
+    setPreviewIndex((prev) => (prev !== null ? Math.max(prev - 1, 0) : null));
   }, []);
 
   useEffect(() => {
@@ -101,8 +99,19 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
               onClick={closePreview}
               aria-label="Close preview"
             >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path d="M4 4L16 16M16 4L4 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 20 20"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M4 4L16 16M16 4L4 16"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
               </svg>
             </button>
 
@@ -110,11 +119,26 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
               <button
                 type="button"
                 className={`${styles.navBtn} ${styles.navPrev}`}
-                onClick={(e) => { e.stopPropagation(); goPrev(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goPrev();
+                }}
                 aria-label="Previous image"
               >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M15 18L9 12L15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M15 18L9 12L15 6"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
             )}
@@ -122,11 +146,26 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
               <button
                 type="button"
                 className={`${styles.navBtn} ${styles.navNext}`}
-                onClick={(e) => { e.stopPropagation(); goNext(); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  goNext();
+                }}
                 aria-label="Next image"
               >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M9 6L15 12L9 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M9 6L15 12L9 18"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
             )}
