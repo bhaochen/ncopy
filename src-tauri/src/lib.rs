@@ -2873,11 +2873,14 @@ pub fn run() {
                 });
             }
 
+            #[cfg(target_os = "macos")]
             let (interval, auto_check) = {
                 let cfg = app.state::<parking_lot::RwLock<crate::config::AppConfig>>();
                 let g = cfg.read();
                 (g.updater.check_interval_hours, g.updater.auto_check)
             };
+            #[cfg(not(target_os = "macos"))]
+            let (_interval, _auto_check) = (0u64, false);
 
             app.manage(updater_state);
 
@@ -2889,6 +2892,7 @@ pub fn run() {
                 refresh_tray(&tray_refresh_handle);
             });
 
+            #[cfg(target_os = "macos")]
             if auto_check {
                 updater::poller::spawn(app.handle().clone(), interval);
             }
