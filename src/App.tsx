@@ -888,7 +888,7 @@ function App() {
           undefined,
           undefined,
           undefined,
-          undefined,
+          '/searchimage',
           undefined,
           result.hits.slice(0, 30),
           searchSrcs,

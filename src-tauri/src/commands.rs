@@ -897,6 +897,7 @@ fn slash_skips_auto_search(slash_command: Option<&str>) -> bool {
             | Some("/bullets")
             | Some("/todos")
             | Some("/extract")
+            | Some("/searchimage")
     )
 }
 
