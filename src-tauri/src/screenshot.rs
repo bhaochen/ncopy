@@ -65,19 +65,43 @@ pub fn process_screenshot_result(path: &PathBuf) -> Result<Option<String>, Strin
 pub async fn capture_screenshot_command(
     app_handle: tauri::AppHandle,
 ) -> Result<Option<String>, String> {
-    // Hide the window on the main thread. Tauri commands run on a tokio pool
-    // thread, but AppKit window APIs (hide, show, makeKey) must only be called
-    // from the main thread to avoid crashes.
-    let hide_handle = app_handle.clone();
-    app_handle
-        .run_on_main_thread(move || {
-            if let Some(w) = hide_handle.get_webview_window("main") {
-                let _ = w.hide();
-            }
-        })
-        .map_err(|e| format!("failed to hide window: {e}"))?;
+    // On macOS via NSPanel, and on X11, hiding the window before the
+    // screenshot prevents Thuki from appearing in the captured region.
+    // On Wayland, hide() unmaps the xdg-toplevel surface and show() remaps
+    // it, causing the compositor (Hyprland, KWin, etc.) to re-apply static
+    // window rules — the window loses its floating geometry. Since Wayland
+    // has no client-side hide API, we skip the hide/show cycle entirely;
+    // the interactive tools (slurp, import, gnome-screenshot -a) let the
+    // user select a region around Thuki.
+    let is_wayland = is_running_wayland();
 
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let (saved_pos, saved_size) = if is_wayland {
+        (None, None)
+    } else {
+        // Save geometry on the main thread, then hide.
+        let (tx, rx) = tokio::sync::oneshot::channel::<(Option<(f64, f64)>, Option<(f64, f64)>)>();
+        let hide_handle = app_handle.clone();
+        app_handle
+            .run_on_main_thread(move || {
+                if let Some(w) = hide_handle.get_webview_window("main") {
+                    let pos = w.outer_position().ok().map(|p| (p.x as f64, p.y as f64));
+                    let size = w
+                        .outer_size()
+                        .ok()
+                        .map(|s| (s.width as f64, s.height as f64));
+                    let _ = w.hide();
+                    let _ = tx.send((pos, size));
+                }
+            })
+            .map_err(|e| format!("failed to hide window: {e}"))?;
+        rx.await.unwrap_or((None, None))
+    };
+
+    if saved_size.is_some() {
+        // A non-zero hide delay helps the window fully disappear before the
+        // screencapture crosshair appears.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
 
     let path = temp_screenshot_path();
     let path_str = path
@@ -112,24 +136,42 @@ pub async fn capture_screenshot_command(
         }
     }
 
-    // Re-show the window so the WebView textarea receives keyboard focus.
-    let show_handle = app_handle.clone();
-    let _ = app_handle.run_on_main_thread(move || {
-        #[cfg(target_os = "macos")]
-        {
-            use tauri_nspanel::ManagerExt;
-            if let Ok(panel) = show_handle.get_webview_panel("main") {
-                panel.show_and_make_key();
-                return;
+    // Re-show / restore window state.
+    if !is_wayland {
+        let show_handle = app_handle.clone();
+        let _ = app_handle.run_on_main_thread(move || {
+            #[cfg(target_os = "macos")]
+            {
+                use tauri_nspanel::ManagerExt;
+                if let Ok(panel) = show_handle.get_webview_panel("main") {
+                    panel.show_and_make_key();
+                    return;
+                }
             }
-        }
-        if let Some(w) = show_handle.get_webview_window("main") {
-            let _ = w.show();
-            let _ = w.set_focus();
-        }
-    });
+            if let Some(w) = show_handle.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+                #[cfg(not(target_os = "macos"))]
+                {
+                    if let Some((x, y)) = saved_pos {
+                        let _ = w.set_position(tauri::Position::Logical(
+                            tauri::LogicalPosition::new(x, y),
+                        ));
+                    }
+                    if let Some((w_, h_)) = saved_size {
+                        let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(w_, h_)));
+                    }
+                }
+            }
+        });
+    }
 
     process_screenshot_result(&path)
+}
+
+/// Detects whether the app is running under a Wayland compositor.
+fn is_running_wayland() -> bool {
+    std::env::var("WAYLAND_DISPLAY").is_ok()
 }
 
 // ─── Full-screen silent capture (macOS) ────────────────────────────────────
