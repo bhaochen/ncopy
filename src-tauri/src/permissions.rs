@@ -217,7 +217,10 @@ pub fn check_screen_recording_tcc_granted() -> bool {
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
 #[cfg_attr(coverage_nightly, coverage(off))]
-pub fn quit_and_relaunch(_app_handle: tauri::AppHandle, _db: tauri::State<crate::history::Database>) {
+pub fn quit_and_relaunch(
+    _app_handle: tauri::AppHandle,
+    _db: tauri::State<crate::history::Database>,
+) {
     _app_handle.restart();
 }
 

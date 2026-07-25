@@ -251,23 +251,23 @@ mod sys {
         let rest: Vec<&str> = stat[after_comm + 2..].split_whitespace().collect();
         let ppid: i32 = rest.get(1)?.parse().ok()?;
 
-        let ruid = std::fs::read_to_string(&status_path)
-            .ok()
-            .and_then(|s| {
-                for line in s.lines() {
-                    if line.starts_with("Uid:") {
-                        return line.split_whitespace().nth(1)?.parse::<u32>().ok();
-                    }
+        let ruid = std::fs::read_to_string(&status_path).ok().and_then(|s| {
+            for line in s.lines() {
+                if line.starts_with("Uid:") {
+                    return line.split_whitespace().nth(1)?.parse::<u32>().ok();
                 }
-                None
-            })?;
+            }
+            None
+        })?;
 
         Some(ProcIdent { pid, ppid, ruid })
     }
 
     pub fn exec_path_of(pid: i32) -> Option<PathBuf> {
         let exe = PathBuf::from(format!("/proc/{pid}/exe"));
-        std::fs::read_link(&exe).ok().and_then(|p| std::fs::canonicalize(p).ok())
+        std::fs::read_link(&exe)
+            .ok()
+            .and_then(|p| std::fs::canonicalize(p).ok())
     }
 }
 

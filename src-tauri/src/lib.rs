@@ -1354,7 +1354,12 @@ fn animate_overlay_frame(app_handle: tauri::AppHandle, width: f64, height: f64, 
                 if let Ok(pos) = window.outer_position() {
                     if let Ok(size) = window.outer_size() {
                         let (_nx, ny, _nw, _nh) = compute_top_left_anchored_target(
-                            (pos.x as f64, pos.y as f64, size.width as f64, size.height as f64),
+                            (
+                                pos.x as f64,
+                                pos.y as f64,
+                                size.width as f64,
+                                size.height as f64,
+                            ),
                             width,
                             height,
                         );
@@ -2519,852 +2524,849 @@ pub fn run() {
     })
     .plugin(tauri_plugin_updater::Builder::new().build())
     .plugin(tauri_plugin_dialog::init())
-        // Replace Tauri's default macOS menu: its predefined Quit does a hard
-        // quit on Cmd+Q that bypasses our handlers. Our custom Quit fires this
-        // handler instead, so a download in flight gets the warning.
-        .menu(build_app_menu)
-        .on_menu_event(|app, event| {
-            if event.id.as_ref() == "quit" {
-                request_quit(app);
-            }
-        })
-        .setup(|app| {
-            #[cfg(target_os = "macos")]
-            app.set_activation_policy(ActivationPolicy::Accessory);
+    // Replace Tauri's default macOS menu: its predefined Quit does a hard
+    // quit on Cmd+Q that bypasses our handlers. Our custom Quit fires this
+    // handler instead, so a download in flight gets the warning.
+    .menu(build_app_menu)
+    .on_menu_event(|app, event| {
+        if event.id.as_ref() == "quit" {
+            request_quit(app);
+        }
+    })
+    .setup(|app| {
+        #[cfg(target_os = "macos")]
+        app.set_activation_policy(ActivationPolicy::Accessory);
 
-            // ── NSPanel conversion (macOS only) ──────────────────────────
-            #[cfg(target_os = "macos")]
-            init_panel(app.app_handle());
-            #[cfg(target_os = "macos")]
-            init_settings_panel(app.app_handle());
-            #[cfg(target_os = "macos")]
-            init_update_panel(app.app_handle());
+        // ── NSPanel conversion (macOS only) ──────────────────────────
+        #[cfg(target_os = "macos")]
+        init_panel(app.app_handle());
+        #[cfg(target_os = "macos")]
+        init_settings_panel(app.app_handle());
+        #[cfg(target_os = "macos")]
+        init_update_panel(app.app_handle());
 
-            // Default the export save dialog to the compact layout. The
-            // user can still hit the disclosure triangle for a full
-            // file browser on any individual save.
-            #[cfg(target_os = "macos")]
-            apply_save_panel_compact_default();
+        // Default the export save dialog to the compact layout. The
+        // user can still hit the disclosure triangle for a full
+        // file browser on any individual save.
+        #[cfg(target_os = "macos")]
+        apply_save_panel_compact_default();
 
-            // ── System tray icon + menu ───────────────────────────────────
-            // Order chosen for muscle-memory parity with mac tray apps
-            // (Bartender, CleanShot X, Rectangle): primary action at top,
-            // settings near it with the macOS-canonical ⌘, accelerator,
-            // separator, then Quit at the bottom. The "Reveal app data"
-            // affordance lives inside the Settings → About tab so the tray
-            // stays focused on session-level actions.
-            let tray_menu = build_tray_menu(app.handle(), None)?;
+        // ── System tray icon + menu ───────────────────────────────────
+        // Order chosen for muscle-memory parity with mac tray apps
+        // (Bartender, CleanShot X, Rectangle): primary action at top,
+        // settings near it with the macOS-canonical ⌘, accelerator,
+        // separator, then Quit at the bottom. The "Reveal app data"
+        // affordance lives inside the Settings → About tab so the tray
+        // stays focused on session-level actions.
+        let tray_menu = build_tray_menu(app.handle(), None)?;
 
-            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png"))
-                .expect("Failed to load tray icon");
+        let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png"))
+            .expect("Failed to load tray icon");
 
-            let _tray = TrayIconBuilder::with_id("main")
-                .icon(tray_icon)
-                .icon_as_template(false)
-                .tooltip("Thuki")
-                .menu(&tray_menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        show_overlay(app, crate::context::ActivationContext::empty());
-                    }
-                    "settings" => {
-                        show_settings_window(app);
-                    }
-                    "update" => {
-                        // Open the "What's New" window so the user previews
-                        // the release notes and picks an action (Skip /
-                        // Later / Install Update) instead of an install
-                        // starting on a single click.
-                        // The chat footer and Settings banner route through
-                        // the same `open_update_window` command.
-                        show_update_window(app);
-                    }
-                    "quit" => {
-                        // Tray Quit click. Cmd+Q reaches the app menu + Exit
-                        // Requested instead, all routed through request_quit so
-                        // an in-progress download is never torn down silently.
-                        request_quit(app);
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        show_overlay(
-                            tray.app_handle(),
-                            crate::context::ActivationContext::empty(),
-                        );
-                    }
-                })
-                .build(app)?;
-
-            // ── Activation listener (macOS only) ─────────────────────────
-            // Only start the event tap when Accessibility is already granted.
-            // Creating a CGEventTap without permission triggers a native macOS
-            // popup; deferring until after onboarding (and the quit+reopen for
-            // Screen Recording) avoids that redundant dialog entirely.
-            #[cfg(target_os = "macos")]
-            {
-                let app_handle = app.handle().clone();
-                let activator = activator::OverlayActivator::new();
-                if permissions::is_accessibility_granted() {
-                    activator.start(move || {
-                        // Skip AX + clipboard when hiding - no context needed and
-                        // simulating Cmd+C against Thuki's own WebView would produce
-                        // a macOS alert sound.
-                        let is_visible = OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst);
-                        let handle = app_handle.clone();
-                        let handle2 = app_handle.clone();
-
-                        // Dispatch context capture to a dedicated thread so the event
-                        // tap callback returns immediately. AX attribute lookups and
-                        // clipboard simulation can block for seconds (macOS AX default
-                        // timeout is ~6 s) when the focused app does not implement the
-                        // accessibility protocol. Blocking the tap callback freezes the
-                        // CFRunLoop and silently prevents all future key events from
-                        // being delivered to the activator.
-                        std::thread::spawn(move || {
-                            let ctx = crate::context::capture_activation_context(is_visible);
-                            let _ =
-                                handle.run_on_main_thread(move || toggle_overlay(&handle2, ctx));
-                        });
-                    });
+        let _tray = TrayIconBuilder::with_id("main")
+            .icon(tray_icon)
+            .icon_as_template(false)
+            .tooltip("Thuki")
+            .menu(&tray_menu)
+            .show_menu_on_left_click(false)
+            .on_menu_event(|app, event| match event.id.as_ref() {
+                "show" => {
+                    show_overlay(app, crate::context::ActivationContext::empty());
                 }
-                app.manage(activator);
-            }
+                "settings" => {
+                    show_settings_window(app);
+                }
+                "update" => {
+                    // Open the "What's New" window so the user previews
+                    // the release notes and picks an action (Skip /
+                    // Later / Install Update) instead of an install
+                    // starting on a single click.
+                    // The chat footer and Settings banner route through
+                    // the same `open_update_window` command.
+                    show_update_window(app);
+                }
+                "quit" => {
+                    // Tray Quit click. Cmd+Q reaches the app menu + Exit
+                    // Requested instead, all routed through request_quit so
+                    // an in-progress download is never torn down silently.
+                    request_quit(app);
+                }
+                _ => {}
+            })
+            .on_tray_icon_event(|tray, event| {
+                if let TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                } = event
+                {
+                    show_overlay(
+                        tray.app_handle(),
+                        crate::context::ActivationContext::empty(),
+                    );
+                }
+            })
+            .build(app)?;
 
-            // ── Activation listener (Linux) ─────────────────────────────
-            // Uses evdev (/dev/input/) to detect double-tap of the Control
-            // key. No special permissions needed beyond read access to the
-            // input event devices (membership in the `input` group, which is
-            // typical on desktop Linux). Context capture on Linux is a stub
-            // that returns an empty context (no AX/text selection support yet).
-            #[cfg(target_os = "linux")]
-            {
-                let app_handle = app.handle().clone();
-                let activator = activator::OverlayActivator::new();
+        // ── Activation listener (macOS only) ─────────────────────────
+        // Only start the event tap when Accessibility is already granted.
+        // Creating a CGEventTap without permission triggers a native macOS
+        // popup; deferring until after onboarding (and the quit+reopen for
+        // Screen Recording) avoids that redundant dialog entirely.
+        #[cfg(target_os = "macos")]
+        {
+            let app_handle = app.handle().clone();
+            let activator = activator::OverlayActivator::new();
+            if permissions::is_accessibility_granted() {
                 activator.start(move || {
+                    // Skip AX + clipboard when hiding - no context needed and
+                    // simulating Cmd+C against Thuki's own WebView would produce
+                    // a macOS alert sound.
                     let is_visible = OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst);
                     let handle = app_handle.clone();
                     let handle2 = app_handle.clone();
+
+                    // Dispatch context capture to a dedicated thread so the event
+                    // tap callback returns immediately. AX attribute lookups and
+                    // clipboard simulation can block for seconds (macOS AX default
+                    // timeout is ~6 s) when the focused app does not implement the
+                    // accessibility protocol. Blocking the tap callback freezes the
+                    // CFRunLoop and silently prevents all future key events from
+                    // being delivered to the activator.
                     std::thread::spawn(move || {
                         let ctx = crate::context::capture_activation_context(is_visible);
-                        let _ =
-                            handle.run_on_main_thread(move || toggle_overlay(&handle2, ctx));
+                        let _ = handle.run_on_main_thread(move || toggle_overlay(&handle2, ctx));
                     });
                 });
-                app.manage(activator);
             }
+            app.manage(activator);
+        }
 
-            // ── Persistent HTTP client ────────────────────────────────
-            app.manage(reqwest::Client::new());
-
-            // ── Replace-target tracking ───────────────────────────────
-            // Tracks the last-active non-Thuki app via an NSWorkspace
-            // observer; this is the app the /rewrite & /refine Replace action
-            // writes into. Managed so `replace_selection` can read the target,
-            // and the observer is installed on the main thread here at setup.
-            let last_active_app = crate::replace::LastActiveAppState::default();
-            app.manage(last_active_app.clone());
-            crate::replace::start_activation_tracking(last_active_app);
-            let warmup_handle = app.handle().clone();
-            app.manage(warmup::WarmupState::with_on_loaded(Arc::new(
-                move |model| {
-                    let _ = warmup_handle.emit("warmup:model-loaded", model);
-                },
-            )));
-            // Port-keyed dedup + cue state for the built-in engine warm-up.
-            app.manage(warmup::BuiltinWarmState::default());
-
-            // ── Configuration (TOML file at app_config_dir) ─────────
-            // Loaded once at startup. Missing file -> seed defaults.
-            // Corrupt file -> rename-with-timestamp + reseed. Only a hard
-            // write failure (disk full, permissions) is fatal; in that case
-            // we show a native alert and exit. See src/config/mod.rs.
-            let app_config = match crate::config::load(app.handle()) {
-                Ok(c) => c,
-                Err(e) => crate::config::show_fatal_dialog_and_exit(&e),
-            };
-            // Wrap in `parking_lot::RwLock` so the Settings panel can mutate
-            // the in-memory config via `set_config_field` while readers
-            // (every Ollama call, every search call) take cheap clones via
-            // `state.read().clone()`. Parking_lot avoids std::sync poisoning
-            // on writer panic. See design doc P10.
-            app.manage(parking_lot::RwLock::new(app_config));
-
-            // ── Launch circuit breaker (issue #296) ───────────────────
-            // Detect a previous session that died abnormally: the crash-loop
-            // signature where Thuki froze the machine while auto-loading a
-            // large model, macOS reopened the app after the forced power-off,
-            // and it re-froze before the user could act. Runs BEFORE any
-            // dangerous auto-op: it takes a process-lifetime advisory lock and
-            // durably writes this launch's `clean_exit: false` record up front,
-            // so a freeze anywhere in the dangerous window leaves the abnormal
-            // marker on disk. The ONLY clear point is a genuine exit (see the
-            // `mark_session_clean_exit` calls in the run loop below); the
-            // renderer starting proves nothing about surviving that window.
-            let startup = startup_guard::run_startup_guard(
-                app.handle(),
-                crate::config::defaults::DEFAULT_STARTUP_SAFE_MODE_THRESHOLD,
-            );
-            // This launch's immutable verdict (read by the auto-prime gate and
-            // the `startup_safety` command) and the process-lifetime session
-            // handle (holds the advisory lock open and owns the record writer)
-            // are two separate managed values by design; never conflated.
-            app.manage(startup.safety);
-            app.manage(startup.guard);
-
-            // ── Shutdown-signal → clean exit (issue #296) ─────────────
-            // Ctrl+C (SIGINT) in a dev terminal and SIGTERM at macOS
-            // shutdown/restart never run the Tauri RunEvent handlers, so
-            // without this a polite stop would leave `clean_exit: false` and be
-            // miscounted as abnormal: every normal Mac restart would inch the
-            // streak toward a false safe mode. A controlling process asking us
-            // to stop IS a clean exit.
-            //
-            // why HERE in the ordering: the mask was already installed at the
-            // very top of `run()` before any thread was spawned, so this thread
-            // (and all others) inherits the block and only this one consumes the
-            // signal. We spawn it now, AFTER the launch routine durably wrote
-            // this session's `clean_exit: false` record and AFTER `SessionGuard`
-            // is managed, so `mark_session_clean_exit` has a writer to flip.
-            //
-            // why cry-wolf is still prevented: SIGKILL, a kernel panic, a power
-            // cut, and a machine freeze remain uncatchable by construction: they
-            // terminate the process without running this thread, so they still
-            // leave `clean_exit: false` behind and correctly count as abnormal.
-            // Only the polite-stop signals are reclassified as clean, and the
-            // clean-exit write stays the single path in `mark_session_clean_exit`.
-            //
-            // why we ALSO shut the engine down here: a polite stop never runs the
-            // Tauri RunEvent handlers, so without this the sidecar would outlive
-            // Ctrl+C and, far more importantly, every macOS restart, reparenting
-            // to launchd and holding ~2 GB (issue #296). The thread runs on an
-            // ordinary thread, so it may block; the shutdown is bounded so a
-            // wedged sidecar can never keep it from re-raising the signal.
-            //
-            // why THIS order (clean-exit write, then engine shutdown): the
-            // clean-exit write is the sole safe-mode input and has no backstop but
-            // itself, so it lands first and unconditionally. The engine shutdown
-            // that follows can hang and is bounded; a sidecar that outlives the
-            // bound is reaped at the next launch, so it is safe to run second and
-            // behind a timeout.
-            let signal_app = app.handle().clone();
-            startup_guard::spawn_shutdown_signal_thread(move || {
-                mark_session_clean_exit(&signal_app);
-                shutdown_engine_bounded(&signal_app);
-            });
-
-            // Defense-in-depth on top of the session record: ask macOS not to
-            // auto-reopen our overlay after an unclean shutdown, reducing the
-            // chance the dangerous auto-startup path is re-entered with no
-            // user action in the first place.
-            #[cfg(target_os = "macos")]
-            startup_guard::disable_quit_keeps_windows();
-
-            // ── Orphaned sidecar reaper (issue #296) ──────────────────
-            // SIGKILL, a kernel panic, or a machine freeze kills Thuki without
-            // running any shutdown path, so a sidecar it spawned can reparent to
-            // launchd (ppid 1) and linger holding ~2 GB. The next launch is the
-            // only place to reap it. Runs on a detached thread so the (rare)
-            // SIGTERM grace on an actual orphan never delays startup; it can
-            // never touch a live Thuki's sidecar because that child's ppid is its
-            // own Thuki's pid, not 1 (the load-bearing clause in the predicate).
-            {
-                let our_sidecar = engine_sidecar_path();
+        // ── Activation listener (Linux) ─────────────────────────────
+        // Uses evdev (/dev/input/) to detect double-tap of the Control
+        // key. No special permissions needed beyond read access to the
+        // input event devices (membership in the `input` group, which is
+        // typical on desktop Linux). Context capture on Linux is a stub
+        // that returns an empty context (no AX/text selection support yet).
+        #[cfg(target_os = "linux")]
+        {
+            let app_handle = app.handle().clone();
+            let activator = activator::OverlayActivator::new();
+            activator.start(move || {
+                let is_visible = OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst);
+                let handle = app_handle.clone();
+                let handle2 = app_handle.clone();
                 std::thread::spawn(move || {
-                    engine::orphan::reap_orphaned_sidecars(&our_sidecar);
+                    let ctx = crate::context::capture_activation_context(is_visible);
+                    let _ = handle.run_on_main_thread(move || toggle_overlay(&handle2, ctx));
                 });
-            }
+            });
+            app.manage(activator);
+        }
 
-            // ── Updater state + optional background poller ────────────
-            {
-                let updater_state = updater::UpdaterState::default();
-                let running_version = app.package_info().version.to_string();
+        // ── Persistent HTTP client ────────────────────────────────
+        app.manage(reqwest::Client::new());
 
-                let sidecar_path = app
-                    .path()
-                    .app_config_dir()
-                    .ok()
-                    .map(|d| d.join(crate::config::defaults::DEFAULT_UPDATER_STATE_FILENAME));
+        // ── Replace-target tracking ───────────────────────────────
+        // Tracks the last-active non-Thuki app via an NSWorkspace
+        // observer; this is the app the /rewrite & /refine Replace action
+        // writes into. Managed so `replace_selection` can read the target,
+        // and the observer is installed on the main thread here at setup.
+        let last_active_app = crate::replace::LastActiveAppState::default();
+        app.manage(last_active_app.clone());
+        crate::replace::start_activation_tracking(last_active_app);
+        let warmup_handle = app.handle().clone();
+        app.manage(warmup::WarmupState::with_on_loaded(Arc::new(
+            move |model| {
+                let _ = warmup_handle.emit("warmup:model-loaded", model);
+            },
+        )));
+        // Port-keyed dedup + cue state for the built-in engine warm-up.
+        app.manage(warmup::BuiltinWarmState::default());
 
-                let mut sidecar = updater::SnoozeSidecar::default();
-                if let Some(path) = sidecar_path.as_ref() {
-                    if let Ok(loaded) = updater::SnoozeSidecar::load(path) {
-                        sidecar = loaded;
-                    }
-                }
+        // ── Configuration (TOML file at app_config_dir) ─────────
+        // Loaded once at startup. Missing file -> seed defaults.
+        // Corrupt file -> rename-with-timestamp + reseed. Only a hard
+        // write failure (disk full, permissions) is fatal; in that case
+        // we show a native alert and exit. See src/config/mod.rs.
+        let app_config = match crate::config::load(app.handle()) {
+            Ok(c) => c,
+            Err(e) => crate::config::show_fatal_dialog_and_exit(&e),
+        };
+        // Wrap in `parking_lot::RwLock` so the Settings panel can mutate
+        // the in-memory config via `set_config_field` while readers
+        // (every Ollama call, every search call) take cheap clones via
+        // `state.read().clone()`. Parking_lot avoids std::sync poisoning
+        // on writer panic. See design doc P10.
+        app.manage(parking_lot::RwLock::new(app_config));
 
-                // Detect a fresh upgrade and clear the stale TCC grants
-                // macOS keeps for the previous binary's code signature.
-                // Without this, System Settings shows the toggle on but
-                // the new binary cannot actually use the permission.
-                #[cfg(target_os = "macos")]
-                {
-                    let did_upgrade = updater::tcc_reset::should_reset_for_upgrade(
-                        sidecar.last_launched_version.as_deref(),
-                        &running_version,
-                    );
-                    if did_upgrade {
-                        updater::tcc_reset::tccutil_reset(&app.config().identifier);
-                        sidecar.last_reset_for_version = Some(running_version.clone());
-                    }
-                }
+        // ── Launch circuit breaker (issue #296) ───────────────────
+        // Detect a previous session that died abnormally: the crash-loop
+        // signature where Thuki froze the machine while auto-loading a
+        // large model, macOS reopened the app after the forced power-off,
+        // and it re-froze before the user could act. Runs BEFORE any
+        // dangerous auto-op: it takes a process-lifetime advisory lock and
+        // durably writes this launch's `clean_exit: false` record up front,
+        // so a freeze anywhere in the dangerous window leaves the abnormal
+        // marker on disk. The ONLY clear point is a genuine exit (see the
+        // `mark_session_clean_exit` calls in the run loop below); the
+        // renderer starting proves nothing about surviving that window.
+        let startup = startup_guard::run_startup_guard(
+            app.handle(),
+            crate::config::defaults::DEFAULT_STARTUP_SAFE_MODE_THRESHOLD,
+        );
+        // This launch's immutable verdict (read by the auto-prime gate and
+        // the `startup_safety` command) and the process-lifetime session
+        // handle (holds the advisory lock open and owns the record writer)
+        // are two separate managed values by design; never conflated.
+        app.manage(startup.safety);
+        app.manage(startup.guard);
 
-                // Restore persisted snooze flags into the live state.
-                updater_state.set_settings_snooze(sidecar.settings_snoozed_until);
-                updater_state.set_chat_snooze(sidecar.chat_snoozed_until);
-                // Seed the previously-seen available version so the first
-                // poll after launch can correctly distinguish "user already
-                // snoozed this version" from "new version arrived, clear
-                // snooze." Without this, every cold start would see
-                // None vs Some(v) and unconditionally clear the user's
-                // snooze.
-                updater_state
-                    .set_last_seen_update_version(sidecar.last_seen_update_version.clone());
-                // Mirror the on-disk reset marker so click-time decisions
-                // don't have to re-read the sidecar.
-                updater_state.set_last_reset_for_version(sidecar.last_reset_for_version.clone());
-                // Seed the skip list so a version the user dismissed in a
-                // previous session stays suppressed: the very first poll
-                // after launch must already know it is skipped.
-                updater_state.set_skipped_versions(sidecar.skipped_versions.clone());
+        // ── Shutdown-signal → clean exit (issue #296) ─────────────
+        // Ctrl+C (SIGINT) in a dev terminal and SIGTERM at macOS
+        // shutdown/restart never run the Tauri RunEvent handlers, so
+        // without this a polite stop would leave `clean_exit: false` and be
+        // miscounted as abnormal: every normal Mac restart would inch the
+        // streak toward a false safe mode. A controlling process asking us
+        // to stop IS a clean exit.
+        //
+        // why HERE in the ordering: the mask was already installed at the
+        // very top of `run()` before any thread was spawned, so this thread
+        // (and all others) inherits the block and only this one consumes the
+        // signal. We spawn it now, AFTER the launch routine durably wrote
+        // this session's `clean_exit: false` record and AFTER `SessionGuard`
+        // is managed, so `mark_session_clean_exit` has a writer to flip.
+        //
+        // why cry-wolf is still prevented: SIGKILL, a kernel panic, a power
+        // cut, and a machine freeze remain uncatchable by construction: they
+        // terminate the process without running this thread, so they still
+        // leave `clean_exit: false` behind and correctly count as abnormal.
+        // Only the polite-stop signals are reclassified as clean, and the
+        // clean-exit write stays the single path in `mark_session_clean_exit`.
+        //
+        // why we ALSO shut the engine down here: a polite stop never runs the
+        // Tauri RunEvent handlers, so without this the sidecar would outlive
+        // Ctrl+C and, far more importantly, every macOS restart, reparenting
+        // to launchd and holding ~2 GB (issue #296). The thread runs on an
+        // ordinary thread, so it may block; the shutdown is bounded so a
+        // wedged sidecar can never keep it from re-raising the signal.
+        //
+        // why THIS order (clean-exit write, then engine shutdown): the
+        // clean-exit write is the sole safe-mode input and has no backstop but
+        // itself, so it lands first and unconditionally. The engine shutdown
+        // that follows can hang and is bounded; a sidecar that outlives the
+        // bound is reaped at the next launch, so it is safe to run second and
+        // behind a timeout.
+        let signal_app = app.handle().clone();
+        startup_guard::spawn_shutdown_signal_thread(move || {
+            mark_session_clean_exit(&signal_app);
+            shutdown_engine_bounded(&signal_app);
+        });
 
-                // Record the running version BEFORE any potential restart
-                // so the post-restart launch reads a sidecar where the
-                // recorded version matches the running version. Without
-                // this, the next launch would see another "upgrade" and
-                // restart-loop forever.
-                sidecar.last_launched_version = Some(running_version);
-                if let Some(path) = sidecar_path.as_ref() {
-                    if let Err(e) = sidecar.save(path) {
-                        eprintln!("thuki: [updater] failed to persist sidecar: {e}");
-                    }
-                }
+        // Defense-in-depth on top of the session record: ask macOS not to
+        // auto-reopen our overlay after an unclean shutdown, reducing the
+        // chance the dangerous auto-startup path is re-entered with no
+        // user action in the first place.
+        #[cfg(target_os = "macos")]
+        startup_guard::disable_quit_keeps_windows();
 
-                // After `tccutil reset` clears the TCC.db entry for Thuki,
-                // the running process retains stale per-PID tracking inside
-                // macOS's `tccd` daemon. Subsequent `AXIsProcessTrusted`
-                // calls from THIS process do not register the new csreq, so
-                // Thuki is missing from System Settings → Privacy &
-                // Security → Accessibility and the user has no in-app path
-                // to grant. Empirically (user-reproduced) the only fix is
-                // a fresh process: `tccd` sees a brand new PID and
-                // registers it normally on the first AX call from
-                // onboarding. The restart is deferred so Tauri finishes
-                // wiring up the rest of `setup` before we tear it down.
-                #[cfg(target_os = "macos")]
-                if did_upgrade {
-                    let app_handle = app.handle().clone();
-                    tauri::async_runtime::spawn(async move {
-                        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-                        eprintln!(
-                            "thuki: [updater] relaunching after TCC reset \
-                             to refresh tccd PID tracking"
-                        );
-                        app_handle.restart();
-                    });
-                }
+        // ── Orphaned sidecar reaper (issue #296) ──────────────────
+        // SIGKILL, a kernel panic, or a machine freeze kills Thuki without
+        // running any shutdown path, so a sidecar it spawned can reparent to
+        // launchd (ppid 1) and linger holding ~2 GB. The next launch is the
+        // only place to reap it. Runs on a detached thread so the (rare)
+        // SIGTERM grace on an actual orphan never delays startup; it can
+        // never touch a live Thuki's sidecar because that child's ppid is its
+        // own Thuki's pid, not 1 (the load-bearing clause in the predicate).
+        {
+            let our_sidecar = engine_sidecar_path();
+            std::thread::spawn(move || {
+                engine::orphan::reap_orphaned_sidecars(&our_sidecar);
+            });
+        }
 
-                let (interval, auto_check) = {
-                    let cfg = app.state::<parking_lot::RwLock<crate::config::AppConfig>>();
-                    let g = cfg.read();
-                    (g.updater.check_interval_hours, g.updater.auto_check)
-                };
+        // ── Updater state + optional background poller ────────────
+        {
+            let updater_state = updater::UpdaterState::default();
+            let running_version = app.package_info().version.to_string();
 
-                app.manage(updater_state);
-
-                // Refresh the tray icon and menu whenever the poller finds a
-                // new update. The listener must be registered after manage() so
-                // refresh_tray can read UpdaterState from managed state.
-                let tray_refresh_handle = app.handle().clone();
-                app.listen("update-available", move |_event| {
-                    refresh_tray(&tray_refresh_handle);
-                });
-
-                if auto_check {
-                    updater::poller::spawn(app.handle().clone(), interval);
-                }
-            }
-
-            // ── Generation + conversation state ─────────────────────
-            app.manage(commands::GenerationState::new());
-            app.manage(commands::ConversationHistory::new());
-
-            // ── Unified trace recorder ─────────────────────────────
-            // Off by default: when `[debug] trace_enabled = false` in
-            // config.toml the live recorder wraps a `NoopRecorder` and
-            // every chat / websearch / screenshot event is a constant-time
-            // call. When on, it wraps a `RegistryRecorder` that routes
-            // events to per-conversation JSONL files under
-            // `app_data_dir()/traces/chat/`.
-            //
-            // Wrapped in a `LiveTraceRecorder` so toggling
-            // `[debug] trace_enabled` from the Settings panel hot-swaps
-            // the inner without requiring an app restart. See
-            // `trace::live` for the swap contract and
-            // `settings_commands::set_config_field` for the hook site.
-            let trace_enabled = app
-                .state::<parking_lot::RwLock<crate::config::AppConfig>>()
-                .read()
-                .debug
-                .trace_enabled;
-            let initial_inner = build_trace_inner(app.handle(), trace_enabled);
-            app.manage(Arc::new(trace::LiveTraceRecorder::new(initial_inner)));
-
-            // Enforce `[debug] trace_retention_days` with a one-shot prune of
-            // stale trace files. Runs here (after config is managed) rather than
-            // on any per-message path: a bounded metadata-only walk that never
-            // gates launch on failure. The keep-forever sentinel (-1) skips it.
-            settings_commands::prune_traces_at_startup(app.handle());
-
-            // ── SQLite database for conversation history ──────────
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .expect("failed to resolve app data directory");
-            let db_conn = database::open_database(&app_data_dir)
-                .expect("failed to initialise SQLite database");
-
-            // ── Active model: migrate the legacy SQLite slug onto the active
-            // provider, then seed the in-memory ActiveModelState ──────────
-            // Pre-providers builds persisted the active model in SQLite under
-            // ACTIVE_MODEL_KEY. It now lives on the active provider's `model`
-            // field in config.toml. Read the legacy value once; if the active
-            // provider has no model yet, fold it in, and for an old-shape file
-            // upgrade the file to the providers shape (a one-time write).
-            // After this the model persists to config and SQLite active_model
-            // is never written again. The installed list isn't queried here
-            // (no async runtime yet); get_model_picker_state reconciles against
-            // the live /api/tags inventory on first picker open.
-            let legacy_active_model = database::get_config(&db_conn, models::ACTIVE_MODEL_KEY)
-                .expect("failed to read legacy active_model from app_config");
-            let config_file_path = app
+            let sidecar_path = app
                 .path()
                 .app_config_dir()
-                .expect("failed to resolve app config dir")
-                .join(crate::config::CONFIG_FILE_NAME);
-            let initial_active_model = {
-                let state = app.state::<parking_lot::RwLock<crate::config::AppConfig>>();
-                let mut cfg = state.write();
-                let pre_providers = !config_file_has_providers(&config_file_path);
-                let attached = crate::config::migrate::attach_legacy_active_model(
-                    &mut cfg,
-                    legacy_active_model.as_deref(),
-                );
-                if pre_providers || attached {
-                    if let Err(e) = crate::config::writer::atomic_write(&config_file_path, &cfg) {
-                        eprintln!("thuki: [config] active-model migration write failed: {e}");
-                    }
+                .ok()
+                .map(|d| d.join(crate::config::defaults::DEFAULT_UPDATER_STATE_FILENAME));
+
+            let mut sidecar = updater::SnoozeSidecar::default();
+            if let Some(path) = sidecar_path.as_ref() {
+                if let Ok(loaded) = updater::SnoozeSidecar::load(path) {
+                    sidecar = loaded;
                 }
-                models::resolve_seed_active_model(Some(cfg.inference.active_provider_model()))
-            };
-            app.manage(models::ActiveModelState(std::sync::Mutex::new(
-                initial_active_model,
-            )));
-            app.manage(models::ModelCapabilitiesCache::default());
-
-            // ── Model blob store + download slot for the built-in engine ──
-            let model_store = models::storage::ModelStore::new(app_data_dir.join("models"))
-                .expect("failed to initialise model blob store");
-
-            // One-time heal: classify any installed models recorded before the
-            // dynamic reasoning classifier existed (reasoning_always IS NULL),
-            // reading each model's local GGUF, so the picker badge and /think
-            // gate are correct without waiting for the first chat.
-            models::heal_unclassified_reasoning(&db_conn, &model_store);
-
-            app.manage(history::Database(std::sync::Mutex::new(db_conn)));
-            // Enforce `[behavior] history_retention_days` once at startup.
-            // Forever (-1) skips; finite windows delete stale conversations
-            // (and best-effort image blobs). Never blocks launch on failure.
-            {
-                let db = app.state::<history::Database>();
-                let cfg = app.state::<parking_lot::RwLock<crate::config::AppConfig>>();
-                history::prune_conversations_at_startup(app.handle(), &db, &cfg);
             }
-            app.manage(model_store);
-            app.manage(models::DownloadState::default());
 
-            // ── Keychain secret store ──────────────────────────────
-            // Service name is derived from the bundle identifier so nightly
-            // (com.quietnode.thuki.nightly) cannot share stable API keys.
-            let keychain_bundle_id = app.config().identifier.clone();
-            app.manage(keychain::Secrets(std::sync::Arc::new(
-                keychain::KeyringStore::new(&keychain_bundle_id),
-            )));
-
-            // ── Built-in inference engine runner ───────────────────
-            // One actor owns the bundled llama-server lifecycle: at most one
-            // process, kill-then-start on model switch, idle unload. Spawned
-            // inside block_on so the actor task lands on Tauri's tokio
-            // runtime (setup itself runs outside a runtime context).
-            // The unified `keep_warm_inactivity_minutes` field governs both
-            // local providers; translate its sentinel into the runner's own
-            // `idle_minutes` convention through the shared boundary helper.
-            let engine_idle_minutes = warmup::builtin_idle_minutes(
-                app.state::<parking_lot::RwLock<crate::config::AppConfig>>()
-                    .read()
-                    .inference
-                    .keep_warm_inactivity_minutes,
-            );
-            let engine_client = app.state::<reqwest::Client>().inner().clone();
-            let engine = tauri::async_runtime::block_on(async move {
-                engine::runner::EngineHandle::spawn(
-                    std::sync::Arc::new(engine::process::TokioEngineProcess {
-                        binary: engine_sidecar_path(),
-                        client: engine_client,
-                    }),
-                    engine_idle_minutes,
-                    std::time::Duration::from_secs(
-                        crate::config::defaults::ENGINE_IDLE_CHECK_INTERVAL_SECS,
-                    ),
-                )
-            });
-            // Forward every engine lifecycle change to the frontend,
-            // mirroring how warmup events are emitted.
+            // Detect a fresh upgrade and clear the stale TCC grants
+            // macOS keeps for the previous binary's code signature.
+            // Without this, System Settings shows the toggle on but
+            // the new binary cannot actually use the permission.
+            #[cfg(target_os = "macos")]
             {
-                let status_handle = app.handle().clone();
-                let mut status_rx = engine.status();
+                let did_upgrade = updater::tcc_reset::should_reset_for_upgrade(
+                    sidecar.last_launched_version.as_deref(),
+                    &running_version,
+                );
+                if did_upgrade {
+                    updater::tcc_reset::tccutil_reset(&app.config().identifier);
+                    sidecar.last_reset_for_version = Some(running_version.clone());
+                }
+            }
+
+            // Restore persisted snooze flags into the live state.
+            updater_state.set_settings_snooze(sidecar.settings_snoozed_until);
+            updater_state.set_chat_snooze(sidecar.chat_snoozed_until);
+            // Seed the previously-seen available version so the first
+            // poll after launch can correctly distinguish "user already
+            // snoozed this version" from "new version arrived, clear
+            // snooze." Without this, every cold start would see
+            // None vs Some(v) and unconditionally clear the user's
+            // snooze.
+            updater_state.set_last_seen_update_version(sidecar.last_seen_update_version.clone());
+            // Mirror the on-disk reset marker so click-time decisions
+            // don't have to re-read the sidecar.
+            updater_state.set_last_reset_for_version(sidecar.last_reset_for_version.clone());
+            // Seed the skip list so a version the user dismissed in a
+            // previous session stays suppressed: the very first poll
+            // after launch must already know it is skipped.
+            updater_state.set_skipped_versions(sidecar.skipped_versions.clone());
+
+            // Record the running version BEFORE any potential restart
+            // so the post-restart launch reads a sidecar where the
+            // recorded version matches the running version. Without
+            // this, the next launch would see another "upgrade" and
+            // restart-loop forever.
+            sidecar.last_launched_version = Some(running_version);
+            if let Some(path) = sidecar_path.as_ref() {
+                if let Err(e) = sidecar.save(path) {
+                    eprintln!("thuki: [updater] failed to persist sidecar: {e}");
+                }
+            }
+
+            // After `tccutil reset` clears the TCC.db entry for Thuki,
+            // the running process retains stale per-PID tracking inside
+            // macOS's `tccd` daemon. Subsequent `AXIsProcessTrusted`
+            // calls from THIS process do not register the new csreq, so
+            // Thuki is missing from System Settings → Privacy &
+            // Security → Accessibility and the user has no in-app path
+            // to grant. Empirically (user-reproduced) the only fix is
+            // a fresh process: `tccd` sees a brand new PID and
+            // registers it normally on the first AX call from
+            // onboarding. The restart is deferred so Tauri finishes
+            // wiring up the rest of `setup` before we tear it down.
+            #[cfg(target_os = "macos")]
+            if did_upgrade {
+                let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    while status_rx.changed().await.is_ok() {
-                        let status = status_rx.borrow_and_update().clone();
-                        // A load left memory (idle-unload, model switch, crash):
-                        // drop the built-in warm-up dedup so the next load primes
-                        // fresh even when the OS reuses the same port. The dedup
-                        // is keyed on port, so a stale primed record would
-                        // otherwise skip the cold reload's prime.
-                        if status.state != "loaded" {
-                            status_handle.state::<warmup::BuiltinWarmState>().reset();
-                        }
-                        let _ = status_handle.emit("engine:status", status);
-                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                    eprintln!(
+                        "thuki: [updater] relaunching after TCC reset \
+                             to refresh tccd PID tracking"
+                    );
+                    app_handle.restart();
                 });
             }
-            app.manage(engine);
 
-            // ── Orphaned image cleanup (startup + periodic) ─────────
-            run_image_cleanup(app.handle());
-            spawn_periodic_image_cleanup(app.handle().clone());
+            let (interval, auto_check) = {
+                let cfg = app.state::<parking_lot::RwLock<crate::config::AppConfig>>();
+                let g = cfg.read();
+                (g.updater.check_interval_hours, g.updater.auto_check)
+            };
 
-            // ── VRAM sentinel poll ─────────────────────────────────
-            // Detects external VRAM changes (ollama stop, TTL expiry,
-            // daemon restart) that Thuki did not initiate. Polls
-            // /api/ps every VRAM_POLL_INTERVAL_SECS seconds and emits
-            // warmup:model-loaded or warmup:model-evicted as needed.
-            warmup::spawn_vram_poller(app.handle().clone());
+            app.manage(updater_state);
 
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            #[cfg(not(coverage))]
-            commands::ask_model,
-            #[cfg(not(coverage))]
-            commands::cancel_generation,
-            #[cfg(not(coverage))]
-            commands::open_url,
-            #[cfg(not(coverage))]
-            commands::reset_conversation,
-            #[cfg(not(coverage))]
-            commands::record_conversation_end,
-            settings_commands::get_config,
-            settings_commands::set_config_field,
-            settings_commands::set_ollama_url,
-            settings_commands::set_active_provider,
-            settings_commands::update_provider_field,
-            settings_commands::add_openai_provider,
-            settings_commands::remove_openai_provider,
-            settings_commands::remember_model_memory_fit,
-            settings_commands::forget_model_memory_fit,
-            settings_commands::reset_config,
-            settings_commands::reload_config_from_disk,
-            settings_commands::get_corrupt_marker,
-            #[cfg(not(coverage))]
-            settings_commands::reveal_config_in_finder,
-            #[cfg(not(coverage))]
-            settings_commands::open_traces_in_finder,
-            #[cfg(not(coverage))]
-            settings_commands::free_traces,
-            #[cfg(not(coverage))]
-            settings_commands::traces_stats,
-            #[cfg(not(coverage))]
-            models::get_model_picker_state,
-            #[cfg(not(coverage))]
-            models::set_active_model,
-            #[cfg(not(coverage))]
-            models::check_model_setup,
-            #[cfg(not(coverage))]
-            models::detect_ollama,
-            #[cfg(not(coverage))]
-            models::get_model_capabilities,
-            #[cfg(not(coverage))]
-            models::get_starter_options,
-            #[cfg(not(coverage))]
-            models::get_staff_picks,
-            #[cfg(not(coverage))]
-            models::get_system_ram_bytes,
-            #[cfg(not(coverage))]
-            models::memory::estimate_model_fit,
-            #[cfg(not(coverage))]
-            models::get_models_dir_free_bytes,
-            #[cfg(not(coverage))]
-            models::download_starter,
-            #[cfg(not(coverage))]
-            models::download_staff_pick,
-            #[cfg(not(coverage))]
-            models::download_repo_model,
-            #[cfg(not(coverage))]
-            models::list_hf_repo_ggufs,
-            #[cfg(not(coverage))]
-            models::search_hf_models,
-            #[cfg(not(coverage))]
-            models::list_openai_models,
-            #[cfg(not(coverage))]
-            models::cancel_model_download,
-            #[cfg(not(coverage))]
-            models::discard_partial_download,
-            #[cfg(not(coverage))]
-            models::get_active_downloads,
-            #[cfg(not(coverage))]
-            set_download_paused,
-            #[cfg(not(coverage))]
-            models::list_installed_models,
-            #[cfg(not(coverage))]
-            models::delete_installed_model,
-            #[cfg(not(coverage))]
-            models::reveal_model_in_finder,
-            #[cfg(not(coverage))]
-            history::save_conversation,
-            #[cfg(not(coverage))]
-            history::persist_message,
-            #[cfg(not(coverage))]
-            history::list_conversations,
-            #[cfg(not(coverage))]
-            history::load_conversation,
-            #[cfg(not(coverage))]
-            history::delete_conversation,
-            #[cfg(not(coverage))]
-            history::prune_conversation_history,
-            #[cfg(not(coverage))]
-            history::history_retention_prune_count,
-            #[cfg(not(coverage))]
-            history::clear_all_conversations,
-            #[cfg(not(coverage))]
-            history::history_stats,
-            #[cfg(not(coverage))]
-            history::generate_title,
-            #[cfg(not(coverage))]
-            images::save_image_command,
-            #[cfg(not(coverage))]
-            images::remove_image_command,
-            #[cfg(not(coverage))]
-            images::cleanup_orphaned_images_command,
-            #[cfg(not(coverage))]
-            screenshot::capture_screenshot_command,
-            #[cfg(not(coverage))]
-            screenshot::capture_full_screen_command,
-            #[cfg(not(coverage))]
-            ocr::extract_text_command,
-            #[cfg(not(coverage))]
-            export::prompt_and_save_chat_export,
-            #[cfg(not(coverage))]
-            replace::replace_selection,
-            notify_overlay_hidden,
-            set_overlay_minimized,
-            notify_frontend_ready,
-            set_window_frame,
-            animate_overlay_frame,
-            set_overlay_alpha,
-            #[cfg(not(coverage))]
-            permissions::check_accessibility_permission,
-            #[cfg(not(coverage))]
-            permissions::open_accessibility_settings,
-            #[cfg(not(coverage))]
-            permissions::check_screen_recording_permission,
-            #[cfg(not(coverage))]
-            permissions::open_screen_recording_settings,
-            #[cfg(not(coverage))]
-            permissions::request_screen_recording_access,
-            #[cfg(not(coverage))]
-            permissions::check_screen_recording_tcc_granted,
-            #[cfg(not(coverage))]
-            permissions::quit_and_relaunch,
-            finish_onboarding,
-            advance_past_model_check,
-            advance_past_builtin_announcement,
-            fit_onboarding_window,
-            position_overlay_ask_bar,
-            onboarding_stage,
-            is_builtin_announced,
-            open_settings_window,
-            open_settings_to_providers,
-            open_settings_to_behavior,
-            open_settings_to_behavior_auto_save,
-            hide_settings_window,
-            #[cfg(not(coverage))]
-            warmup::warm_up_model,
-            #[cfg(not(coverage))]
-            warmup::evict_model,
-            #[cfg(not(coverage))]
-            warmup::get_loaded_model,
-            #[cfg(not(coverage))]
-            warmup::get_engine_status,
-            #[cfg(not(coverage))]
-            warmup::get_builtin_warm_state,
-            startup_guard::startup_safety,
-            updater::commands::get_updater_state,
-            #[cfg(not(coverage))]
-            updater::commands::check_for_update,
-            #[cfg(not(coverage))]
-            updater::commands::install_update,
-            #[cfg(not(coverage))]
-            updater::commands::skip_update_version,
-            #[cfg(not(coverage))]
-            updater::commands::open_update_window,
-            #[cfg(not(coverage))]
-            updater::commands::snooze_update_chat,
-            #[cfg(not(coverage))]
-            updater::commands::snooze_update_settings,
-            #[cfg(not(coverage))]
-            updater::commands::reset_and_relaunch_for_grant,
-            #[cfg(not(coverage))]
-            updater::commands::consume_pending_grant_resume,
-            #[cfg(not(coverage))]
-            keychain::set_provider_api_key,
-            #[cfg(not(coverage))]
-            keychain::clear_provider_api_key,
-            #[cfg(not(coverage))]
-            keychain::has_provider_api_key,
-            #[cfg(not(coverage))]
-            subscribe::subscribe_email
-        ])
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app_handle, event| match event {
-            RunEvent::WindowEvent {
-                label,
-                event: tauri::WindowEvent::CloseRequested { api, .. },
-                ..
-            } => {
-                if label == "main" {
-                    api.prevent_close();
+            // Refresh the tray icon and menu whenever the poller finds a
+            // new update. The listener must be registered after manage() so
+            // refresh_tray can read UpdaterState from managed state.
+            let tray_refresh_handle = app.handle().clone();
+            app.listen("update-available", move |_event| {
+                refresh_tray(&tray_refresh_handle);
+            });
 
-                    request_overlay_hide(app_handle);
-                } else if label == "settings" {
-                    // Hide instead of destroy so React state (active tab,
-                    // form values) survives close/reopen.
-                    api.prevent_close();
-                    if let Some(window) = app_handle.get_webview_window("settings") {
-                        let _ = window.hide();
-                    }
-                    // Real window gone: drop the Dock icon and return to
-                    // Accessory (unless onboarding still owns a window).
-                    #[cfg(target_os = "macos")]
-                    {
-                        SETTINGS_OPEN.store(false, Ordering::SeqCst);
-                        sync_activation_policy(app_handle);
-                    }
-                } else if label == "update" {
-                    // Hide instead of destroy so the NSPanel handle from
-                    // init_update_panel stays valid for the next open
-                    // (cmd-W and the in-window buttons both close it).
-                    api.prevent_close();
-                    if let Some(window) = app_handle.get_webview_window("update") {
-                        let _ = window.hide();
-                    }
-                    // Real window gone: drop the Dock icon and return to
-                    // Accessory (unless Settings or onboarding still owns one).
-                    #[cfg(target_os = "macos")]
-                    {
-                        UPDATE_OPEN.store(false, Ordering::SeqCst);
-                        sync_activation_policy(app_handle);
-                    }
+            if auto_check {
+                updater::poller::spawn(app.handle().clone(), interval);
+            }
+        }
+
+        // ── Generation + conversation state ─────────────────────
+        app.manage(commands::GenerationState::new());
+        app.manage(commands::ConversationHistory::new());
+
+        // ── Unified trace recorder ─────────────────────────────
+        // Off by default: when `[debug] trace_enabled = false` in
+        // config.toml the live recorder wraps a `NoopRecorder` and
+        // every chat / websearch / screenshot event is a constant-time
+        // call. When on, it wraps a `RegistryRecorder` that routes
+        // events to per-conversation JSONL files under
+        // `app_data_dir()/traces/chat/`.
+        //
+        // Wrapped in a `LiveTraceRecorder` so toggling
+        // `[debug] trace_enabled` from the Settings panel hot-swaps
+        // the inner without requiring an app restart. See
+        // `trace::live` for the swap contract and
+        // `settings_commands::set_config_field` for the hook site.
+        let trace_enabled = app
+            .state::<parking_lot::RwLock<crate::config::AppConfig>>()
+            .read()
+            .debug
+            .trace_enabled;
+        let initial_inner = build_trace_inner(app.handle(), trace_enabled);
+        app.manage(Arc::new(trace::LiveTraceRecorder::new(initial_inner)));
+
+        // Enforce `[debug] trace_retention_days` with a one-shot prune of
+        // stale trace files. Runs here (after config is managed) rather than
+        // on any per-message path: a bounded metadata-only walk that never
+        // gates launch on failure. The keep-forever sentinel (-1) skips it.
+        settings_commands::prune_traces_at_startup(app.handle());
+
+        // ── SQLite database for conversation history ──────────
+        let app_data_dir = app
+            .path()
+            .app_data_dir()
+            .expect("failed to resolve app data directory");
+        let db_conn =
+            database::open_database(&app_data_dir).expect("failed to initialise SQLite database");
+
+        // ── Active model: migrate the legacy SQLite slug onto the active
+        // provider, then seed the in-memory ActiveModelState ──────────
+        // Pre-providers builds persisted the active model in SQLite under
+        // ACTIVE_MODEL_KEY. It now lives on the active provider's `model`
+        // field in config.toml. Read the legacy value once; if the active
+        // provider has no model yet, fold it in, and for an old-shape file
+        // upgrade the file to the providers shape (a one-time write).
+        // After this the model persists to config and SQLite active_model
+        // is never written again. The installed list isn't queried here
+        // (no async runtime yet); get_model_picker_state reconciles against
+        // the live /api/tags inventory on first picker open.
+        let legacy_active_model = database::get_config(&db_conn, models::ACTIVE_MODEL_KEY)
+            .expect("failed to read legacy active_model from app_config");
+        let config_file_path = app
+            .path()
+            .app_config_dir()
+            .expect("failed to resolve app config dir")
+            .join(crate::config::CONFIG_FILE_NAME);
+        let initial_active_model = {
+            let state = app.state::<parking_lot::RwLock<crate::config::AppConfig>>();
+            let mut cfg = state.write();
+            let pre_providers = !config_file_has_providers(&config_file_path);
+            let attached = crate::config::migrate::attach_legacy_active_model(
+                &mut cfg,
+                legacy_active_model.as_deref(),
+            );
+            if pre_providers || attached {
+                if let Err(e) = crate::config::writer::atomic_write(&config_file_path, &cfg) {
+                    eprintln!("thuki: [config] active-model migration write failed: {e}");
                 }
             }
-            RunEvent::ExitRequested { api, .. } => {
-                // Cmd+Q (and any app.exit issued before the user has confirmed)
-                // lands here. If a download would be lost, hold the exit and
-                // warn so the user can keep it running in the background. The
-                // dialog itself is deduplicated against the app-menu path.
-                if !QUIT_CONFIRMED.load(Ordering::SeqCst) && should_warn_on_quit(app_handle) {
-                    api.prevent_exit();
-                    show_quit_dialog(app_handle);
-                } else {
-                    // why: this is the ONLY place the session record is flipped
-                    // to `clean_exit: true`, because the renderer starting
-                    // proves nothing about surviving the dangerous startup
-                    // window (issue #296). The exit is proceeding (not held for
-                    // a download warning), so mark it clean here. `Exit` below
-                    // marks it too, since on the macOS restart/shutdown
-                    // termination path `ExitRequested` may not fire; the write
-                    // is idempotent, so marking on both paths is safe.
-                    mark_session_clean_exit(app_handle);
-                }
-            }
-            RunEvent::Exit => {
-                // why: also mark the clean exit here (idempotent) so the macOS
-                // restart/shutdown termination path, which may skip
-                // `ExitRequested`, still lands the clean marker durably.
-                mark_session_clean_exit(app_handle);
-                // Kill the built-in engine sidecar and confirm its exit so
-                // no orphan llama-server survives quit. The actor runs on
-                // the tokio runtime, so block_on here cannot deadlock.
-                let engine = app_handle
-                    .state::<engine::runner::EngineHandle>()
-                    .inner()
-                    .clone();
-                tauri::async_runtime::block_on(async move { engine.shutdown().await });
-                // The engine is now stopped, so no split-model load can be in
-                // flight: remove the load-time symlink shims. The shard blobs
-                // themselves stay in the store; only the symlink indirection is
-                // reclaimed. Best-effort, a leftover dir is harmless.
-                if let Some(store) = app_handle.try_state::<models::storage::ModelStore>() {
-                    let _ = store.clear_split_shims();
-                }
-            }
-            // Dock-icon click. The icon is only present while Settings, the
-            // update window, or onboarding owns a window, so refocus that window
-            // rather than summoning the ask-bar overlay (which is not what the
-            // icon represents). macOS delivers Reopen on dock click / Cmd-Tab.
-            //
-            // Refocus only - deliberately does NOT call show_settings_window,
-            // which would run position_settings_window and recenter a panel the
-            // user has dragged. A dock click should bring the existing panel
-            // forward in place, not snap it back to center.
-            #[cfg(target_os = "macos")]
-            RunEvent::Reopen { .. } => {
-                if SETTINGS_OPEN.load(Ordering::SeqCst) {
-                    if let Ok(panel) = app_handle.get_webview_panel("settings") {
-                        let _ = app_handle.run_on_main_thread(move || {
-                            panel.show_and_make_key();
-                        });
-                    } else if let Some(w) = app_handle.get_webview_window("settings") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                } else if UPDATE_OPEN.load(Ordering::SeqCst) {
-                    if let Ok(panel) = app_handle.get_webview_panel("update") {
-                        let _ = app_handle.run_on_main_thread(move || {
-                            panel.show_and_make_key();
-                        });
-                    } else if let Some(w) = app_handle.get_webview_window("update") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                } else if ONBOARDING_ACTIVE.load(Ordering::SeqCst) {
-                    if let Some(w) = app_handle.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                }
-            }
-            _ => {}
+            models::resolve_seed_active_model(Some(cfg.inference.active_provider_model()))
+        };
+        app.manage(models::ActiveModelState(std::sync::Mutex::new(
+            initial_active_model,
+        )));
+        app.manage(models::ModelCapabilitiesCache::default());
+
+        // ── Model blob store + download slot for the built-in engine ──
+        let model_store = models::storage::ModelStore::new(app_data_dir.join("models"))
+            .expect("failed to initialise model blob store");
+
+        // One-time heal: classify any installed models recorded before the
+        // dynamic reasoning classifier existed (reasoning_always IS NULL),
+        // reading each model's local GGUF, so the picker badge and /think
+        // gate are correct without waiting for the first chat.
+        models::heal_unclassified_reasoning(&db_conn, &model_store);
+
+        app.manage(history::Database(std::sync::Mutex::new(db_conn)));
+        // Enforce `[behavior] history_retention_days` once at startup.
+        // Forever (-1) skips; finite windows delete stale conversations
+        // (and best-effort image blobs). Never blocks launch on failure.
+        {
+            let db = app.state::<history::Database>();
+            let cfg = app.state::<parking_lot::RwLock<crate::config::AppConfig>>();
+            history::prune_conversations_at_startup(app.handle(), &db, &cfg);
+        }
+        app.manage(model_store);
+        app.manage(models::DownloadState::default());
+
+        // ── Keychain secret store ──────────────────────────────
+        // Service name is derived from the bundle identifier so nightly
+        // (com.quietnode.thuki.nightly) cannot share stable API keys.
+        let keychain_bundle_id = app.config().identifier.clone();
+        app.manage(keychain::Secrets(std::sync::Arc::new(
+            keychain::KeyringStore::new(&keychain_bundle_id),
+        )));
+
+        // ── Built-in inference engine runner ───────────────────
+        // One actor owns the bundled llama-server lifecycle: at most one
+        // process, kill-then-start on model switch, idle unload. Spawned
+        // inside block_on so the actor task lands on Tauri's tokio
+        // runtime (setup itself runs outside a runtime context).
+        // The unified `keep_warm_inactivity_minutes` field governs both
+        // local providers; translate its sentinel into the runner's own
+        // `idle_minutes` convention through the shared boundary helper.
+        let engine_idle_minutes = warmup::builtin_idle_minutes(
+            app.state::<parking_lot::RwLock<crate::config::AppConfig>>()
+                .read()
+                .inference
+                .keep_warm_inactivity_minutes,
+        );
+        let engine_client = app.state::<reqwest::Client>().inner().clone();
+        let engine = tauri::async_runtime::block_on(async move {
+            engine::runner::EngineHandle::spawn(
+                std::sync::Arc::new(engine::process::TokioEngineProcess {
+                    binary: engine_sidecar_path(),
+                    client: engine_client,
+                }),
+                engine_idle_minutes,
+                std::time::Duration::from_secs(
+                    crate::config::defaults::ENGINE_IDLE_CHECK_INTERVAL_SECS,
+                ),
+            )
         });
+        // Forward every engine lifecycle change to the frontend,
+        // mirroring how warmup events are emitted.
+        {
+            let status_handle = app.handle().clone();
+            let mut status_rx = engine.status();
+            tauri::async_runtime::spawn(async move {
+                while status_rx.changed().await.is_ok() {
+                    let status = status_rx.borrow_and_update().clone();
+                    // A load left memory (idle-unload, model switch, crash):
+                    // drop the built-in warm-up dedup so the next load primes
+                    // fresh even when the OS reuses the same port. The dedup
+                    // is keyed on port, so a stale primed record would
+                    // otherwise skip the cold reload's prime.
+                    if status.state != "loaded" {
+                        status_handle.state::<warmup::BuiltinWarmState>().reset();
+                    }
+                    let _ = status_handle.emit("engine:status", status);
+                }
+            });
+        }
+        app.manage(engine);
+
+        // ── Orphaned image cleanup (startup + periodic) ─────────
+        run_image_cleanup(app.handle());
+        spawn_periodic_image_cleanup(app.handle().clone());
+
+        // ── VRAM sentinel poll ─────────────────────────────────
+        // Detects external VRAM changes (ollama stop, TTL expiry,
+        // daemon restart) that Thuki did not initiate. Polls
+        // /api/ps every VRAM_POLL_INTERVAL_SECS seconds and emits
+        // warmup:model-loaded or warmup:model-evicted as needed.
+        warmup::spawn_vram_poller(app.handle().clone());
+
+        Ok(())
+    })
+    .invoke_handler(tauri::generate_handler![
+        #[cfg(not(coverage))]
+        commands::ask_model,
+        #[cfg(not(coverage))]
+        commands::cancel_generation,
+        #[cfg(not(coverage))]
+        commands::open_url,
+        #[cfg(not(coverage))]
+        commands::reset_conversation,
+        #[cfg(not(coverage))]
+        commands::record_conversation_end,
+        settings_commands::get_config,
+        settings_commands::set_config_field,
+        settings_commands::set_ollama_url,
+        settings_commands::set_active_provider,
+        settings_commands::update_provider_field,
+        settings_commands::add_openai_provider,
+        settings_commands::remove_openai_provider,
+        settings_commands::remember_model_memory_fit,
+        settings_commands::forget_model_memory_fit,
+        settings_commands::reset_config,
+        settings_commands::reload_config_from_disk,
+        settings_commands::get_corrupt_marker,
+        #[cfg(not(coverage))]
+        settings_commands::reveal_config_in_finder,
+        #[cfg(not(coverage))]
+        settings_commands::open_traces_in_finder,
+        #[cfg(not(coverage))]
+        settings_commands::free_traces,
+        #[cfg(not(coverage))]
+        settings_commands::traces_stats,
+        #[cfg(not(coverage))]
+        models::get_model_picker_state,
+        #[cfg(not(coverage))]
+        models::set_active_model,
+        #[cfg(not(coverage))]
+        models::check_model_setup,
+        #[cfg(not(coverage))]
+        models::detect_ollama,
+        #[cfg(not(coverage))]
+        models::get_model_capabilities,
+        #[cfg(not(coverage))]
+        models::get_starter_options,
+        #[cfg(not(coverage))]
+        models::get_staff_picks,
+        #[cfg(not(coverage))]
+        models::get_system_ram_bytes,
+        #[cfg(not(coverage))]
+        models::memory::estimate_model_fit,
+        #[cfg(not(coverage))]
+        models::get_models_dir_free_bytes,
+        #[cfg(not(coverage))]
+        models::download_starter,
+        #[cfg(not(coverage))]
+        models::download_staff_pick,
+        #[cfg(not(coverage))]
+        models::download_repo_model,
+        #[cfg(not(coverage))]
+        models::list_hf_repo_ggufs,
+        #[cfg(not(coverage))]
+        models::search_hf_models,
+        #[cfg(not(coverage))]
+        models::list_openai_models,
+        #[cfg(not(coverage))]
+        models::cancel_model_download,
+        #[cfg(not(coverage))]
+        models::discard_partial_download,
+        #[cfg(not(coverage))]
+        models::get_active_downloads,
+        #[cfg(not(coverage))]
+        set_download_paused,
+        #[cfg(not(coverage))]
+        models::list_installed_models,
+        #[cfg(not(coverage))]
+        models::delete_installed_model,
+        #[cfg(not(coverage))]
+        models::reveal_model_in_finder,
+        #[cfg(not(coverage))]
+        history::save_conversation,
+        #[cfg(not(coverage))]
+        history::persist_message,
+        #[cfg(not(coverage))]
+        history::list_conversations,
+        #[cfg(not(coverage))]
+        history::load_conversation,
+        #[cfg(not(coverage))]
+        history::delete_conversation,
+        #[cfg(not(coverage))]
+        history::prune_conversation_history,
+        #[cfg(not(coverage))]
+        history::history_retention_prune_count,
+        #[cfg(not(coverage))]
+        history::clear_all_conversations,
+        #[cfg(not(coverage))]
+        history::history_stats,
+        #[cfg(not(coverage))]
+        history::generate_title,
+        #[cfg(not(coverage))]
+        images::save_image_command,
+        #[cfg(not(coverage))]
+        images::remove_image_command,
+        #[cfg(not(coverage))]
+        images::cleanup_orphaned_images_command,
+        #[cfg(not(coverage))]
+        screenshot::capture_screenshot_command,
+        #[cfg(not(coverage))]
+        screenshot::capture_full_screen_command,
+        #[cfg(not(coverage))]
+        ocr::extract_text_command,
+        #[cfg(not(coverage))]
+        export::prompt_and_save_chat_export,
+        #[cfg(not(coverage))]
+        replace::replace_selection,
+        notify_overlay_hidden,
+        set_overlay_minimized,
+        notify_frontend_ready,
+        set_window_frame,
+        animate_overlay_frame,
+        set_overlay_alpha,
+        #[cfg(not(coverage))]
+        permissions::check_accessibility_permission,
+        #[cfg(not(coverage))]
+        permissions::open_accessibility_settings,
+        #[cfg(not(coverage))]
+        permissions::check_screen_recording_permission,
+        #[cfg(not(coverage))]
+        permissions::open_screen_recording_settings,
+        #[cfg(not(coverage))]
+        permissions::request_screen_recording_access,
+        #[cfg(not(coverage))]
+        permissions::check_screen_recording_tcc_granted,
+        #[cfg(not(coverage))]
+        permissions::quit_and_relaunch,
+        finish_onboarding,
+        advance_past_model_check,
+        advance_past_builtin_announcement,
+        fit_onboarding_window,
+        position_overlay_ask_bar,
+        onboarding_stage,
+        is_builtin_announced,
+        open_settings_window,
+        open_settings_to_providers,
+        open_settings_to_behavior,
+        open_settings_to_behavior_auto_save,
+        hide_settings_window,
+        #[cfg(not(coverage))]
+        warmup::warm_up_model,
+        #[cfg(not(coverage))]
+        warmup::evict_model,
+        #[cfg(not(coverage))]
+        warmup::get_loaded_model,
+        #[cfg(not(coverage))]
+        warmup::get_engine_status,
+        #[cfg(not(coverage))]
+        warmup::get_builtin_warm_state,
+        startup_guard::startup_safety,
+        updater::commands::get_updater_state,
+        #[cfg(not(coverage))]
+        updater::commands::check_for_update,
+        #[cfg(not(coverage))]
+        updater::commands::install_update,
+        #[cfg(not(coverage))]
+        updater::commands::skip_update_version,
+        #[cfg(not(coverage))]
+        updater::commands::open_update_window,
+        #[cfg(not(coverage))]
+        updater::commands::snooze_update_chat,
+        #[cfg(not(coverage))]
+        updater::commands::snooze_update_settings,
+        #[cfg(not(coverage))]
+        updater::commands::reset_and_relaunch_for_grant,
+        #[cfg(not(coverage))]
+        updater::commands::consume_pending_grant_resume,
+        #[cfg(not(coverage))]
+        keychain::set_provider_api_key,
+        #[cfg(not(coverage))]
+        keychain::clear_provider_api_key,
+        #[cfg(not(coverage))]
+        keychain::has_provider_api_key,
+        #[cfg(not(coverage))]
+        subscribe::subscribe_email
+    ])
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(|app_handle, event| match event {
+        RunEvent::WindowEvent {
+            label,
+            event: tauri::WindowEvent::CloseRequested { api, .. },
+            ..
+        } => {
+            if label == "main" {
+                api.prevent_close();
+
+                request_overlay_hide(app_handle);
+            } else if label == "settings" {
+                // Hide instead of destroy so React state (active tab,
+                // form values) survives close/reopen.
+                api.prevent_close();
+                if let Some(window) = app_handle.get_webview_window("settings") {
+                    let _ = window.hide();
+                }
+                // Real window gone: drop the Dock icon and return to
+                // Accessory (unless onboarding still owns a window).
+                #[cfg(target_os = "macos")]
+                {
+                    SETTINGS_OPEN.store(false, Ordering::SeqCst);
+                    sync_activation_policy(app_handle);
+                }
+            } else if label == "update" {
+                // Hide instead of destroy so the NSPanel handle from
+                // init_update_panel stays valid for the next open
+                // (cmd-W and the in-window buttons both close it).
+                api.prevent_close();
+                if let Some(window) = app_handle.get_webview_window("update") {
+                    let _ = window.hide();
+                }
+                // Real window gone: drop the Dock icon and return to
+                // Accessory (unless Settings or onboarding still owns one).
+                #[cfg(target_os = "macos")]
+                {
+                    UPDATE_OPEN.store(false, Ordering::SeqCst);
+                    sync_activation_policy(app_handle);
+                }
+            }
+        }
+        RunEvent::ExitRequested { api, .. } => {
+            // Cmd+Q (and any app.exit issued before the user has confirmed)
+            // lands here. If a download would be lost, hold the exit and
+            // warn so the user can keep it running in the background. The
+            // dialog itself is deduplicated against the app-menu path.
+            if !QUIT_CONFIRMED.load(Ordering::SeqCst) && should_warn_on_quit(app_handle) {
+                api.prevent_exit();
+                show_quit_dialog(app_handle);
+            } else {
+                // why: this is the ONLY place the session record is flipped
+                // to `clean_exit: true`, because the renderer starting
+                // proves nothing about surviving the dangerous startup
+                // window (issue #296). The exit is proceeding (not held for
+                // a download warning), so mark it clean here. `Exit` below
+                // marks it too, since on the macOS restart/shutdown
+                // termination path `ExitRequested` may not fire; the write
+                // is idempotent, so marking on both paths is safe.
+                mark_session_clean_exit(app_handle);
+            }
+        }
+        RunEvent::Exit => {
+            // why: also mark the clean exit here (idempotent) so the macOS
+            // restart/shutdown termination path, which may skip
+            // `ExitRequested`, still lands the clean marker durably.
+            mark_session_clean_exit(app_handle);
+            // Kill the built-in engine sidecar and confirm its exit so
+            // no orphan llama-server survives quit. The actor runs on
+            // the tokio runtime, so block_on here cannot deadlock.
+            let engine = app_handle
+                .state::<engine::runner::EngineHandle>()
+                .inner()
+                .clone();
+            tauri::async_runtime::block_on(async move { engine.shutdown().await });
+            // The engine is now stopped, so no split-model load can be in
+            // flight: remove the load-time symlink shims. The shard blobs
+            // themselves stay in the store; only the symlink indirection is
+            // reclaimed. Best-effort, a leftover dir is harmless.
+            if let Some(store) = app_handle.try_state::<models::storage::ModelStore>() {
+                let _ = store.clear_split_shims();
+            }
+        }
+        // Dock-icon click. The icon is only present while Settings, the
+        // update window, or onboarding owns a window, so refocus that window
+        // rather than summoning the ask-bar overlay (which is not what the
+        // icon represents). macOS delivers Reopen on dock click / Cmd-Tab.
+        //
+        // Refocus only - deliberately does NOT call show_settings_window,
+        // which would run position_settings_window and recenter a panel the
+        // user has dragged. A dock click should bring the existing panel
+        // forward in place, not snap it back to center.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => {
+            if SETTINGS_OPEN.load(Ordering::SeqCst) {
+                if let Ok(panel) = app_handle.get_webview_panel("settings") {
+                    let _ = app_handle.run_on_main_thread(move || {
+                        panel.show_and_make_key();
+                    });
+                } else if let Some(w) = app_handle.get_webview_window("settings") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            } else if UPDATE_OPEN.load(Ordering::SeqCst) {
+                if let Ok(panel) = app_handle.get_webview_panel("update") {
+                    let _ = app_handle.run_on_main_thread(move || {
+                        panel.show_and_make_key();
+                    });
+                } else if let Some(w) = app_handle.get_webview_window("update") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            } else if ONBOARDING_ACTIVE.load(Ordering::SeqCst) {
+                if let Some(w) = app_handle.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+        }
+        _ => {}
+    });
 }
 
 #[cfg(test)]

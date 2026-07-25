@@ -81,7 +81,7 @@ mod macos_impl {
         CGEventTapPlacement, CGEventType, CallbackResult, EventField,
     };
 
-    use super::{ActivationState, evaluate_activation, ACTIVATION_COOLDOWN, ACTIVATION_WINDOW};
+    use super::{evaluate_activation, ActivationState, ACTIVATION_COOLDOWN, ACTIVATION_WINDOW};
 
     const KC_PRIMARY_L: i64 = 0x3b;
     const KC_PRIMARY_R: i64 = 0x3e;
@@ -134,14 +134,13 @@ mod macos_impl {
                 TapExitReason::CreationFailed => {
                     permission_failures += 1;
                     if permission_failures >= MAX_PERMISSION_ATTEMPTS {
-                        eprintln!(
-                            "thuki: [error] activation listener failed after max retries"
-                        );
+                        eprintln!("thuki: [error] activation listener failed after max retries");
                         return;
                     }
                     eprintln!(
                         "thuki: [activator] tap creation failed (attempt {}/{}); retrying in {}s",
-                        permission_failures, MAX_PERMISSION_ATTEMPTS,
+                        permission_failures,
+                        MAX_PERMISSION_ATTEMPTS,
                         PERMISSION_POLL_INTERVAL.as_secs()
                     );
                     std::thread::sleep(PERMISSION_POLL_INTERVAL);
@@ -150,10 +149,7 @@ mod macos_impl {
         }
     }
 
-    fn try_initialize_tap<F>(
-        is_active: &Arc<AtomicBool>,
-        on_activation: &Arc<F>,
-    ) -> TapExitReason
+    fn try_initialize_tap<F>(is_active: &Arc<AtomicBool>, on_activation: &Arc<F>) -> TapExitReason
     where
         F: Fn() + Send + Sync + 'static,
     {
@@ -232,7 +228,7 @@ mod linux_impl {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use super::{ActivationState, evaluate_activation};
+    use super::{evaluate_activation, ActivationState};
 
     const KEY_LEFTCTRL: u16 = 29;
     const KEY_RIGHTCTRL: u16 = 97;
@@ -279,9 +275,7 @@ mod linux_impl {
         devices
     }
 
-    fn read_input_event(
-        file: &mut std::fs::File,
-    ) -> Result<(u16, u16, i32), std::io::Error> {
+    fn read_input_event(file: &mut std::fs::File) -> Result<(u16, u16, i32), std::io::Error> {
         use std::io::Read;
         let mut buf = [0u8; INPUT_EVENT_SIZE];
         file.read_exact(&mut buf)?;
@@ -360,7 +354,11 @@ mod linux_impl {
             }
 
             let ret = unsafe {
-                libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, POLL_TIMEOUT_MS)
+                libc::poll(
+                    poll_fds.as_mut_ptr(),
+                    poll_fds.len() as libc::nfds_t,
+                    POLL_TIMEOUT_MS,
+                )
             };
 
             if ret < 0 {
