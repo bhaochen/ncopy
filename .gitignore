@@ -51,3 +51,5 @@ docs/superpowers/
 # Bundled inference engine artifacts (fetched by scripts/ensure-llama-server.ts)
 src-tauri/binaries/
 *.gguf
+
+src-tauri/target
