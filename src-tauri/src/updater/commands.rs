@@ -1,6 +1,7 @@
 use crate::config::defaults::{DEFAULT_UPDATER_STATE_FILENAME, MAX_UPDATER_SNOOZE_HOURS};
 use crate::updater::poller;
 use crate::updater::state::{SnoozeSidecar, UpdaterSnapshot, UpdaterState};
+#[cfg(target_os = "macos")]
 use crate::updater::tcc_reset;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -156,6 +157,7 @@ fn sidecar_path(app: &AppHandle) -> Result<PathBuf, String> {
 /// grant flow. Returns `Err` when the service string is not one of the
 /// values Thuki resets at click time, so callers cannot smuggle arbitrary
 /// strings into a later `tccutil reset` invocation.
+#[cfg(target_os = "macos")]
 pub fn prepare_pending_reregister(
     sidecar: &mut SnoozeSidecar,
     service: &str,
@@ -209,42 +211,51 @@ pub fn reset_and_relaunch_for_grant(
     state: State<'_, UpdaterState>,
     service: String,
 ) -> Result<bool, String> {
-    // Validate first so a hostile string never reaches `tccutil` even when
-    // the startup-clean path skips the reset.
-    let canonical = tcc_reset::validate_click_time_service(&service)
-        .ok_or_else(|| format!("unsupported tcc service: {service}"))?;
+    #[cfg(target_os = "macos")]
+    {
+        // Validate first so a hostile string never reaches `tccutil` even when
+        // the startup-clean path skips the reset.
+        let canonical = tcc_reset::validate_click_time_service(&service)
+            .ok_or_else(|| format!("unsupported tcc service: {service}"))?;
 
-    let running = app.package_info().version.to_string();
-    let snooze = state.snooze_clone();
-    if click_time_reset_can_skip(snooze.last_reset_for_version.as_deref(), &running) {
-        // Startup path already reset TCC for this exact version, so the
-        // running binary's csreq already owns whatever TCC entries (if
-        // any) System Settings will display. A second reset+relaunch
-        // would only add a jarring quit on every grant click.
-        return Ok(false);
+        let running = app.package_info().version.to_string();
+        let snooze = state.snooze_clone();
+        if click_time_reset_can_skip(snooze.last_reset_for_version.as_deref(), &running) {
+            // Startup path already reset TCC for this exact version, so the
+            // running binary's csreq already owns whatever TCC entries (if
+            // any) System Settings will display. A second reset+relaunch
+            // would only add a jarring quit on every grant click.
+            return Ok(false);
+        }
+
+        let mut snooze = snooze;
+        prepare_pending_reregister(&mut snooze, canonical)?;
+
+        let path = sidecar_path(&app)?;
+        snooze.save(&path).map_err(|e| e.to_string())?;
+        state.set_pending_reregister(Some(canonical.to_string()));
+
+        let bundle_id = app.config().identifier.clone();
+        tcc_reset::tccutil_reset_service(&bundle_id, canonical);
+
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            eprintln!(
+                "thuki: [updater] relaunching after click-time TCC reset \
+                 to refresh tccd PID tracking"
+            );
+            app_handle.restart();
+        });
+
+        Ok(true)
     }
 
-    let mut snooze = snooze;
-    prepare_pending_reregister(&mut snooze, canonical)?;
-
-    let path = sidecar_path(&app)?;
-    snooze.save(&path).map_err(|e| e.to_string())?;
-    state.set_pending_reregister(Some(canonical.to_string()));
-
-    let bundle_id = app.config().identifier.clone();
-    tcc_reset::tccutil_reset_service(&bundle_id, canonical);
-
-    let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        eprintln!(
-            "thuki: [updater] relaunching after click-time TCC reset \
-             to refresh tccd PID tracking"
-        );
-        app_handle.restart();
-    });
-
-    Ok(true)
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (service, app, state);
+        Err("TCC permission reset is only supported on macOS".to_string())
+    }
 }
 
 /// Frontend-facing companion to `reset_and_relaunch_for_grant`. Reads the
@@ -305,6 +316,7 @@ mod tests {
         assert_eq!(snooze_deadline(1_700_000_000, 0), 1_700_000_000);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn prepare_pending_reregister_accepts_accessibility() {
         let mut sidecar = SnoozeSidecar::default();
@@ -313,6 +325,7 @@ mod tests {
         assert_eq!(sidecar.pending_reregister.as_deref(), Some("Accessibility"));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn prepare_pending_reregister_accepts_screen_capture() {
         let mut sidecar = SnoozeSidecar::default();
@@ -321,6 +334,7 @@ mod tests {
         assert_eq!(sidecar.pending_reregister.as_deref(), Some("ScreenCapture"));
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn prepare_pending_reregister_rejects_unsupported_service() {
         let mut sidecar = SnoozeSidecar::default();

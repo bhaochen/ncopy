@@ -2804,22 +2804,16 @@ pub fn run() {
                 // macOS keeps for the previous binary's code signature.
                 // Without this, System Settings shows the toggle on but
                 // the new binary cannot actually use the permission.
-                let did_upgrade = updater::tcc_reset::should_reset_for_upgrade(
-                    sidecar.last_launched_version.as_deref(),
-                    &running_version,
-                );
-                if did_upgrade {
-                    updater::tcc_reset::tccutil_reset(&app.config().identifier);
-                    // Persist that the running version's csreq is what
-                    // owns any TCC entries on disk now (or there are no
-                    // entries, which is also fine). The click-time grant
-                    // flow consults this so the user's first grant click
-                    // after an upgrade does not trigger a second
-                    // reset+relaunch on top of the one we are about to
-                    // schedule below. Held in the sidecar (not memory)
-                    // because the relaunch wipes any in-process state
-                    // before the user could ever click.
-                    sidecar.last_reset_for_version = Some(running_version.clone());
+                #[cfg(target_os = "macos")]
+                {
+                    let did_upgrade = updater::tcc_reset::should_reset_for_upgrade(
+                        sidecar.last_launched_version.as_deref(),
+                        &running_version,
+                    );
+                    if did_upgrade {
+                        updater::tcc_reset::tccutil_reset(&app.config().identifier);
+                        sidecar.last_reset_for_version = Some(running_version.clone());
+                    }
                 }
 
                 // Restore persisted snooze flags into the live state.
@@ -2864,6 +2858,7 @@ pub fn run() {
                 // registers it normally on the first AX call from
                 // onboarding. The restart is deferred so Tauri finishes
                 // wiring up the rest of `setup` before we tear it down.
+                #[cfg(target_os = "macos")]
                 if did_upgrade {
                     let app_handle = app.handle().clone();
                     tauri::async_runtime::spawn(async move {

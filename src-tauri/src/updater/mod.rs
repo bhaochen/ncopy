@@ -7,6 +7,7 @@
 pub mod commands;
 pub mod poller;
 pub mod state;
+#[cfg(target_os = "macos")]
 pub mod tcc_reset;
 
 pub use state::{AvailableUpdate, SnoozeSidecar, UpdaterSnapshot, UpdaterState};
