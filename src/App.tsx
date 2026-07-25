@@ -198,6 +198,9 @@ type PendingSubmit =
 /** Total transparent padding around the morphing container: pt-2(8) + pb-6(24) + motion py-2(16). */
 const CONTAINER_VERTICAL_PADDING = 48;
 
+/** Safety margin so the window never sits flush against the screen edge. */
+const SCREEN_EDGE_MARGIN = 20;
+
 /**
  * Collapsed-bar height used as the seed for the show-time upward-grow Y math
  * and as the fallback when the morphing container reports `offsetHeight === 0`.
@@ -1201,7 +1204,20 @@ function App() {
    * change would otherwise stay invisible until the next content reflow).
    */
   const overlayWidthRef = useRef(config.window.overlayWidth);
-  const maxChatHeightRef = useRef(config.window.maxChatHeight);
+
+  // Use the available screen height as the effective cap so the chat fills
+  // the window. Fall back to the config value when screen info is unavailable
+  // (jsdom / headless test environment).
+  const effectiveMaxChatHeight =
+    window.screen.availHeight > 0
+      ? Math.min(
+          config.window.maxChatHeight,
+          window.screen.availHeight -
+            CONTAINER_VERTICAL_PADDING -
+            SCREEN_EDGE_MARGIN,
+        )
+      : config.window.maxChatHeight;
+  const maxChatHeightRef = useRef(effectiveMaxChatHeight);
 
   /**
    * True on any render where a borrowing surface (onboarding or the safe-mode
@@ -1220,7 +1236,7 @@ function App() {
 
   useEffect(() => {
     overlayWidthRef.current = config.window.overlayWidth;
-    maxChatHeightRef.current = config.window.maxChatHeight;
+    maxChatHeightRef.current = effectiveMaxChatHeight;
     /* v8 ignore start -- requires real Tauri webview to setSize */
     // why: onboarding and the safe-mode recovery card (issue #296) replace
     // this whole render tree and own their own window sizing via
@@ -4349,7 +4365,7 @@ function App() {
                           style={{
                             transition:
                               'height 0.25s cubic-bezier(0.16, 1, 0.3, 1), min-height 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-                            maxHeight: `${config.window.maxChatHeight}px`,
+                            maxHeight: `${effectiveMaxChatHeight}px`,
                           }}
                           className="morphing-container relative flex flex-col overflow-hidden"
                         >

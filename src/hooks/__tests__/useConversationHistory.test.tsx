@@ -47,6 +47,7 @@ describe('useConversationHistory', () => {
           thinking_content: null,
           search_sources: null,
           model_name: null,
+          image_search_hits: null,
         },
         {
           role: 'assistant',
@@ -56,6 +57,7 @@ describe('useConversationHistory', () => {
           thinking_content: null,
           search_sources: null,
           model_name: null,
+          image_search_hits: null,
         },
       ],
     });
@@ -109,6 +111,7 @@ describe('useConversationHistory', () => {
           thinking_content: null,
           search_sources: null,
           model_name: null,
+          image_search_hits: null,
         },
         {
           role: 'assistant',
@@ -118,6 +121,7 @@ describe('useConversationHistory', () => {
           thinking_content: null,
           search_sources: null,
           model_name: null,
+          image_search_hits: null,
         },
       ],
       model: MODEL,
@@ -280,6 +284,7 @@ describe('useConversationHistory', () => {
       thinkingContent: 'reason',
       searchSources: null,
       modelName: null,
+      imageSearchHits: null,
     });
   });
 
@@ -320,6 +325,7 @@ describe('useConversationHistory', () => {
       thinkingContent: null,
       searchSources: null,
       modelName: null,
+      imageSearchHits: null,
     });
     expect(invoke).toHaveBeenCalledWith('persist_message', {
       conversationId: 'conv-123',
@@ -330,6 +336,7 @@ describe('useConversationHistory', () => {
       thinkingContent: null,
       searchSources: null,
       modelName: null,
+      imageSearchHits: null,
     });
   });
 
@@ -671,6 +678,7 @@ describe('useConversationHistory', () => {
       thinkingContent: 'Let me reason step by step',
       searchSources: null,
       modelName: null,
+      imageSearchHits: null,
     });
   });
 
@@ -704,6 +712,7 @@ describe('useConversationHistory', () => {
           thinking_content: null,
           search_sources: null,
           model_name: null,
+          image_search_hits: null,
         },
         {
           role: 'assistant',
@@ -713,6 +722,7 @@ describe('useConversationHistory', () => {
           thinking_content: 'Deep thoughts',
           search_sources: null,
           model_name: null,
+          image_search_hits: null,
         },
       ],
     });
@@ -982,6 +992,7 @@ describe('useConversationHistory', () => {
       expect.objectContaining({
         role: 'user',
         modelName: null,
+        imageSearchHits: null,
       }),
     );
     expect(invoke).toHaveBeenCalledWith(
@@ -1003,7 +1014,9 @@ describe('useConversationHistory', () => {
         image_paths: null,
         thinking_content: null,
         search_sources: null,
+        image_search_hits: null,
         model_name: null,
+        image_search_hits: null,
         created_at: 1,
       },
       {
@@ -1014,6 +1027,7 @@ describe('useConversationHistory', () => {
         image_paths: null,
         thinking_content: null,
         search_sources: null,
+        image_search_hits: null,
         model_name: 'gemma4:e2b',
         created_at: 2,
       },
