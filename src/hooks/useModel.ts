@@ -731,7 +731,7 @@ export function useModel(
             content: currentContent,
             thinkingContent: currentThinkingContent || undefined,
             fromSearch: keepFromSearch ? true : undefined,
-            searchSources: pendingSources,
+            searchSources: pendingSources ?? assistantMsg.searchSources,
             searchFailReason: pendingFailReason,
           });
           return;

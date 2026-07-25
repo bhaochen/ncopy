@@ -63,9 +63,14 @@ function fromPersisted(msg: PersistedMessage): Message {
     imagePaths: imagePaths && imagePaths.length > 0 ? imagePaths : undefined,
     thinkingContent: msg.thinking_content ?? undefined,
     searchSources:
-      searchSources && searchSources.length > 0 ? searchSources : undefined,
+      searchSources && searchSources.length > 0
+        ? searchSources
+        : imageHits && imageHits.length > 0
+          ? imageHits.map((h) => ({ title: h.title, url: h.url, attribution: h.source }))
+          : undefined,
     fromSearch:
-      searchSources !== undefined && searchSources.length > 0
+      (searchSources !== undefined && searchSources.length > 0) ||
+      (imageHits !== undefined && imageHits.length > 0)
         ? true
         : undefined,
     modelName: msg.model_name ?? undefined,
