@@ -36,8 +36,7 @@ pub mod updater;
 pub mod warmup;
 pub mod websearch;
 
-#[cfg(target_os = "macos")]
-mod activator;
+pub mod activator;
 #[cfg(target_os = "macos")]
 mod cg_displays;
 pub mod context;
@@ -1159,7 +1158,6 @@ fn show_overlay(app_handle: &tauri::AppHandle, ctx: crate::context::ActivationCo
 ///
 /// Uses an atomic flag as the single source of truth for intended visibility,
 /// which avoids race conditions with the native panel state during animations.
-#[cfg(target_os = "macos")]
 fn toggle_overlay(app_handle: &tauri::AppHandle, ctx: crate::context::ActivationContext) {
     if take_minimized_for_restore() {
         emit_overlay_restore(app_handle);
@@ -2637,6 +2635,29 @@ pub fn run() {
                         });
                     });
                 }
+                app.manage(activator);
+            }
+
+            // ── Activation listener (Linux) ─────────────────────────────
+            // Uses evdev (/dev/input/) to detect double-tap of the Control
+            // key. No special permissions needed beyond read access to the
+            // input event devices (membership in the `input` group, which is
+            // typical on desktop Linux). Context capture on Linux is a stub
+            // that returns an empty context (no AX/text selection support yet).
+            #[cfg(target_os = "linux")]
+            {
+                let app_handle = app.handle().clone();
+                let activator = activator::OverlayActivator::new();
+                activator.start(move || {
+                    let is_visible = OVERLAY_INTENDED_VISIBLE.load(Ordering::SeqCst);
+                    let handle = app_handle.clone();
+                    let handle2 = app_handle.clone();
+                    std::thread::spawn(move || {
+                        let ctx = crate::context::capture_activation_context(is_visible);
+                        let _ =
+                            handle.run_on_main_thread(move || toggle_overlay(&handle2, ctx));
+                    });
+                });
                 app.manage(activator);
             }
 
