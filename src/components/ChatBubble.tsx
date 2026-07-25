@@ -5,13 +5,14 @@ import { ErrorCard } from './ErrorCard';
 import { CopyButton } from './CopyButton';
 import { ReplaceButton } from './ReplaceButton';
 import { ImageThumbnails } from './ImageThumbnails';
+import { ImageGallery } from './ImageGallery';
 import { ReasoningBlock } from './ReasoningBlock';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { formatQuotedText } from '../utils/formatQuote';
 import { useConfig } from '../contexts/ConfigContext';
 import { COMMANDS, SCREEN_CAPTURE_PLACEHOLDER } from '../config/commands';
 import type { EngineErrorKind, SearchFailReason } from '../hooks/useModel';
-import type { SearchResultPreview, SearchStage } from '../types/search';
+import type { ImageSearchHit, SearchResultPreview, SearchStage } from '../types/search';
 import { SearchProgressBlock } from './SearchProgressBlock';
 import { SourceAttribution } from './SourceAttribution';
 import { avatarColor, domainOf } from '../utils/domainAvatar';
@@ -175,6 +176,8 @@ interface ChatBubbleProps {
   onReplace?: (text: string) => Promise<boolean>;
   /** Source URLs for a web-search answer. Click opens the URL in the browser. */
   searchSources?: SearchResultPreview[];
+  /** Image search hits from `/searchimage`. Renders as an image gallery. */
+  imageSearchHits?: ImageSearchHit[];
   /**
    * Set when a wanted web search produced no citable answer. Renders the
    * reliable L3 hairline-rail failure note under the (parametric) answer; the
@@ -267,6 +270,7 @@ export function ChatBubble({
   searchSources,
   searchFailReason,
   searchStage = null,
+  imageSearchHits,
   isSearching = false,
   shouldAutoScroll,
   modelName,
@@ -741,6 +745,11 @@ export function ChatBubble({
               />
             ) : (
               <>
+                {imageSearchHits && imageSearchHits.length > 0 && (
+                  <div className="mb-2">
+                    <ImageGallery hits={imageSearchHits} />
+                  </div>
+                )}
                 <MarkdownRenderer
                   content={answerBody}
                   isStreaming={isStreaming}

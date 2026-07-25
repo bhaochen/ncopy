@@ -19,6 +19,7 @@ import {
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { useModel } from './hooks/useModel';
 import type { Message, RetrySnapshot } from './hooks/useModel';
+import type { ImageSearchResult } from './types/search';
 import { useConversationHistory } from './hooks/useConversationHistory';
 import { useModelSelection } from './hooks/useModelSelection';
 import { useModelCapabilities } from './hooks/useModelCapabilities';
@@ -850,17 +851,6 @@ function App() {
       quotedText?: string,
     ): Promise<void> => {
       try {
-        type ImageSearchHit = {
-          title: string;
-          url: string;
-          img_src: string;
-          thumbnail_src: string;
-          source: string;
-        };
-        type ImageSearchResult = {
-          hits: ImageSearchHit[];
-          stats: { name: string; status: string; hit_count: number }[];
-        };
         const result = await invoke<ImageSearchResult>('search_images', {
           query,
         });
@@ -869,24 +859,20 @@ function App() {
             'No images found for your search query.');
           return;
         }
-        // Format images as markdown to pre-populate the assistant bubble
-        let imageMarkdown = '';
-        for (const hit of result.hits.slice(0, 12)) {
-          imageMarkdown += `![${hit.title || 'image'}](${hit.img_src})\n\n`;
-        }
-        // Pre-seed the assistant message with images, then have the model
-        // describe them (promptOverride instructs the model).
+        // Pass hits as structured data (ImageGallery) + minimal prompt to
+        // describe them. The frontend renders the gallery; the model adds text.
         ask(
           displayContent,
           quotedText,
           undefined,
           undefined,
-          `Below are the images found for "${query}". Describe them briefly.\n\nThe images were sourced from: ${result.hits.map((h) => h.source).filter((s, i, a) => a.indexOf(s) === i).join(', ')}.`,
+          `Above are images found for "${query}". Describe them briefly.\n\nThe images were sourced from: ${result.hits.map((h) => h.source).filter((s, i, a) => a.indexOf(s) === i).join(', ')}.`,
           undefined,
           undefined,
           undefined,
           undefined,
-          imageMarkdown,
+          undefined,
+          result.hits.slice(0, 30),
         );
       } catch (e) {
         console.error('Image search failed:', e);

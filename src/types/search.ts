@@ -30,3 +30,18 @@ export type SearchStage =
   | { kind: 'composing'; gap?: boolean }
   /** Citation audit (± repair) after answer tokens finished; sources pill status. */
   | { kind: 'verifying_sources' };
+
+/** One hit from a text-to-image search (`/searchimage`). */
+export interface ImageSearchHit {
+  title: string;
+  url: string;
+  img_src: string;
+  thumbnail_src: string;
+  source: string;
+}
+
+/** Result payload returned by the backend `search_images` command. */
+export interface ImageSearchResult {
+  hits: ImageSearchHit[];
+  stats: { name: string; status: string; hit_count: number }[];
+}

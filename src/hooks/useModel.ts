@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { Channel, invoke } from '@tauri-apps/api/core';
-import type { SearchResultPreview, SearchStage } from '../types/search';
+import type { SearchResultPreview, SearchStage, ImageSearchHit } from '../types/search';
 
 /**
  * Why a wanted web search produced no citable answer. Mirrors the Rust
@@ -48,6 +48,8 @@ export interface Message {
   replaceCommand?: string;
   /** Source links for a web-search answer. */
   searchSources?: SearchResultPreview[];
+  /** Image search results from `/searchimage`. Renders as an image gallery. */
+  imageSearchHits?: ImageSearchHit[];
   /**
    * Set when a wanted web search produced no citable answer (auto-search or
    * `/search`). Drives the styled failure note under the answer bubble; the
@@ -435,6 +437,8 @@ export function useModel(
       /** Pre-populates the assistant message content before streaming begins.
        *  Useful for showing images or other content ahead of model text. */
       preSeedContent?: string,
+      /** Image search hits to render as a gallery in the assistant message. */
+      imageSearchHits?: ImageSearchHit[],
     ) => {
       if (!displayContent.trim() && (!imagePaths || imagePaths.length === 0)) {
         return;
@@ -478,6 +482,7 @@ export function useModel(
         fromThink: think ? true : undefined,
         // Force-search turns own the Variant B progress chrome immediately
         fromSearch: forceSearch ? true : undefined,
+        imageSearchHits,
         replaceCommand,
         modelName: resolvedModel ?? undefined,
         // Captured once, here, so a later turn can never overwrite the
@@ -829,6 +834,7 @@ export function useModel(
        */
       slashCommand?: string,
       preSeedContent?: string,
+      imageSearchHits?: ImageSearchHit[],
     ) =>
       runChatTurn(
         displayContent,
@@ -843,6 +849,7 @@ export function useModel(
         undefined,
         slashCommand,
         preSeedContent,
+        imageSearchHits,
       ),
     [runChatTurn],
   );
