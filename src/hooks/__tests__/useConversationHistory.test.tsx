@@ -1014,7 +1014,6 @@ describe('useConversationHistory', () => {
         image_paths: null,
         thinking_content: null,
         search_sources: null,
-        image_search_hits: null,
         model_name: null,
         image_search_hits: null,
         created_at: 1,

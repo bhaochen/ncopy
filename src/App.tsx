@@ -1208,14 +1208,10 @@ function App() {
   // Use the available screen height as the effective cap so the chat fills
   // the window. Fall back to the config value when screen info is unavailable
   // (jsdom / headless test environment).
+  const screenMax = window.screen.availHeight - CONTAINER_VERTICAL_PADDING - SCREEN_EDGE_MARGIN;
   const effectiveMaxChatHeight =
-    window.screen.availHeight > 0
-      ? Math.min(
-          config.window.maxChatHeight,
-          window.screen.availHeight -
-            CONTAINER_VERTICAL_PADDING -
-            SCREEN_EDGE_MARGIN,
-        )
+    window.screen.availHeight > 0 && screenMax > 0
+      ? screenMax
       : config.window.maxChatHeight;
   const maxChatHeightRef = useRef(effectiveMaxChatHeight);
 
