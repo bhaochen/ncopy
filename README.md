@@ -127,6 +127,8 @@ bun install
 bun run dev
 ```
 
-## License
+**Linux dependencies** — the `/screen` command uses platform tools to capture the display:
+- [grim](https://sr.ht/~emersion/grim/) (Wayland) — captures full screen output
+- [ImageMagick](https://imagemagick.org/) (`import`) — X11 fallback
 
-Copyright 2026 Logan Nguyen. Licensed under the [Apache License, Version 2.0](LICENSE).
+On Arch Linux: `sudo pacman -S grim imagemagick`

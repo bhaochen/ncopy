@@ -472,10 +472,54 @@ fn capture_full_screen_pixels(anchor: Option<(f64, f64)>) -> Result<(u32, u32, V
     capture_full_screen_raw(anchor)
 }
 
-/// Non-macOS stub: full-screen capture is macOS-only.
+/// Captures raw RGBA pixel bytes of the full screen using platform CLI tools.
+///
+/// On Wayland (Linux), uses `grim` to capture all outputs combined into one
+/// image. On X11, falls back to ImageMagick `import -window root`. Returns
+/// `(width, height, rgba_bytes)` decoded from the captured PNG.
+///
+/// `anchor` is ignored on non-macOS platforms — the full combined desktop is
+/// always captured.
 #[cfg(not(target_os = "macos"))]
+#[cfg_attr(coverage_nightly, coverage(off))]
 fn capture_full_screen_pixels(_anchor: Option<(f64, f64)>) -> Result<(u32, u32, Vec<u8>), String> {
-    Err("full-screen capture is only supported on macOS".to_string())
+    let is_wayland = is_running_wayland();
+
+    let png_data = if is_wayland {
+        let output = std::process::Command::new("grim")
+            .arg("-")
+            .output()
+            .map_err(|e| format!("failed to run grim: {e}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "grim screen capture failed (exit code: {:?})",
+                output.status.code()
+            ));
+        }
+        output.stdout
+    } else {
+        let path = temp_screenshot_path();
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| "temp path is not valid UTF-8".to_string())?;
+        let status = std::process::Command::new("import")
+            .args(["-window", "root", path_str])
+            .status()
+            .map_err(|e| format!("failed to run import: {e}"))?;
+        if !status.success() {
+            return Err(format!(
+                "import screen capture failed (exit code: {:?})",
+                status.code()
+            ));
+        }
+        std::fs::read(&path).map_err(|e| format!("failed to read captured image: {e}"))?
+    };
+
+    let img = image::load_from_memory(&png_data)
+        .map_err(|e| format!("failed to decode captured image: {e}"))?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    Ok((width, height, rgba.into_raw()))
 }
 
 /// Reads the `CGDirectDisplayID` of the `NSScreen` the given `NSWindow` lives
@@ -539,13 +583,12 @@ fn display_bounds_center(bounds: (f64, f64, f64, f64)) -> (f64, f64) {
 }
 
 /// Tauri command: silently captures the full screen (excluding Thuki's own
-/// windows) and returns the absolute file path of the saved image.
+/// windows on macOS) and returns the absolute file path of the saved image.
 ///
-/// CoreGraphics APIs internally dispatch to the main thread, so calling them
-/// from a tokio pool thread (via `spawn_blocking`) causes a deadlock. Instead,
-/// `capture_full_screen` runs on the main thread via `run_on_main_thread`,
-/// producing raw RGBA pixel bytes. The heavy image encoding and disk I/O then
-/// happen on a blocking thread to avoid stalling the UI.
+/// On macOS, CoreGraphics APIs must run on the main thread to avoid
+/// deadlocks. On Linux, the capture runs directly using platform CLI tools
+/// (`grim` on Wayland, `import` on X11). The heavy image encoding and disk
+/// I/O happen on a blocking thread to avoid stalling the UI in all cases.
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[cfg_attr(not(coverage), tauri::command)]
 pub async fn capture_full_screen_command(
@@ -559,41 +602,36 @@ pub async fn capture_full_screen_command(
         .app_data_dir()
         .map_err(|e| format!("failed to resolve app data dir: {e}"))?;
 
-    // Resolve the Thuki window so we can ask AppKit which display it lives on.
-    // The handle is read here (off the main thread) but only dereferenced
-    // inside the main-thread closure below: AppKit window/screen APIs are
-    // strictly main-thread-only.
-    let main_window = app_handle.get_webview_window("main");
-
-    // Step 1: Capture raw RGBA pixels on the main thread (CoreGraphics
-    // requirement). Returns (width, height, rgba_bytes).
+    // Step 1: Capture raw RGBA pixels.
     //
-    // The anchor point steers multi-monitor capture: we look up the
-    // `CGDirectDisplayID` of the `NSScreen` the Thuki window is on, then take
-    // the center of that display's bounds. Fallback chain: window missing →
-    // `ns_window` unavailable → `NSScreen` nil → `None`, which downstream
-    // resolves to the main (menu-bar) display.
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<(u32, u32, Vec<u8>), String>>();
-    app_handle
-        .run_on_main_thread(move || {
-            #[cfg(target_os = "macos")]
-            let anchor = main_window
-                .as_ref()
-                .and_then(|w| w.ns_window().ok())
-                .and_then(|p| unsafe { nswindow_display_id(p) })
-                .map(|id| display_bounds_center(crate::cg_displays::bounds_for_display(id)));
-            #[cfg(not(target_os = "macos"))]
-            let anchor: Option<(f64, f64)> = {
-                let _ = &main_window;
-                None
-            };
-            tx.send(capture_full_screen_pixels(anchor)).ok();
-        })
-        .map_err(|e| format!("failed to dispatch capture to main thread: {e}"))?;
-
-    let (width, height, rgba_bytes) = rx
-        .await
-        .map_err(|_| "main thread capture channel closed unexpectedly".to_string())??;
+    // macOS: CoreGraphics must run on the main thread. The anchor steers
+    // multi-monitor capture to the display containing Thuki's window.
+    // Linux: run directly — no main-thread dependency for CLI tools.
+    let (width, height, rgba_bytes) = {
+        #[cfg(target_os = "macos")]
+        {
+            let main_window = app_handle.get_webview_window("main");
+            let (tx, rx) = tokio::sync::oneshot::channel::<Result<(u32, u32, Vec<u8>), String>>();
+            app_handle
+                .run_on_main_thread(move || {
+                    let anchor = main_window
+                        .as_ref()
+                        .and_then(|w| w.ns_window().ok())
+                        .and_then(|p| unsafe { nswindow_display_id(p) })
+                        .map(|id| {
+                            display_bounds_center(crate::cg_displays::bounds_for_display(id))
+                        });
+                    tx.send(capture_full_screen_pixels(anchor)).ok();
+                })
+                .map_err(|e| format!("failed to dispatch capture to main thread: {e}"))?;
+            rx.await
+                .map_err(|_| "main thread capture channel closed unexpectedly".to_string())?
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            capture_full_screen_pixels(None)?
+        }
+    };
 
     // Step 2: Encode to PNG and save via the images pipeline on a blocking
     // thread so the main thread stays responsive.
@@ -692,21 +730,6 @@ mod tests {
     #[test]
     fn encode_as_base64_empty_input() {
         assert_eq!(encode_as_base64(b""), "");
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    #[test]
-    fn capture_full_screen_returns_err_on_non_macos() {
-        let result = capture_full_screen_pixels(None);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("only supported on macOS"));
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    #[test]
-    fn capture_full_screen_returns_err_on_non_macos_with_anchor() {
-        let result = capture_full_screen_pixels(Some((100.0, 100.0)));
-        assert!(result.is_err());
     }
 
     #[test]
