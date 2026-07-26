@@ -2,6 +2,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { readImage, readText } from '@tauri-apps/plugin-clipboard-manager';
+import type { LexicalEditor } from 'lexical';
+import { $getRoot, $getSelection, $isRangeSelection } from 'lexical';
 import { formatQuotedText } from '../utils/formatQuote';
 import { LexicalAskBarInput } from './askbar/LexicalAskBarInput';
 import type { AskBarKeyHandlers } from './askbar/LexicalAskBarInput';
@@ -251,6 +254,110 @@ interface AskBarViewProps {
    * submits their first message.
    */
   onFirstKeystroke?: () => void;
+}
+
+/**
+ * Converts RGBA raw pixel data from Tauri's native clipboard readImage() into
+ * a PNG File. Uses an offscreen canvas for encoding — no server round-trip.
+ */
+async function rgbaToPngFile(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+): Promise<File> {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  const imageData = ctx.createImageData(width, height);
+  imageData.data.set(rgba);
+  ctx.putImageData(imageData, 0, 0);
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, 'image/png'),
+  );
+  return new File([blob!], `clipboard-${Date.now()}.png`, {
+    type: 'image/png',
+  });
+}
+
+/**
+ * Intercepts Ctrl+V to drive a native-first clipboard pipeline:
+ * 1. Tauri readImage() — most reliable image source on all desktop platforms
+ * 2. Tauri readText() — reliable text source
+ * 3. DOM navigator.clipboard.read() — modern-browser fallback
+ * 4. The existing DOM paste event flow is kept as the last resort in
+ *    handlePaste, which fires only when this function does NOT intervene.
+ *
+ * Called from LexicalAskBarInput's KEY_DOWN_COMMAND handler before the native
+ * paste event fires, so the paste event is suppressed entirely once we decide
+ * to handle it natively.
+ */
+async function nativeClipboardPaste(
+  editor: LexicalEditor,
+  onImagesAttached: (files: File[]) => void,
+): Promise<void> {
+  // 1. Try native readImage (Tauri clipboard plugin).
+  try {
+    const img = await readImage();
+    if (img) {
+      const size = await img.size();
+      const rgba = await img.rgba();
+      if (size.width > 0 && size.height > 0 && rgba.length > 0) {
+        const file = await rgbaToPngFile(rgba, size.width, size.height);
+        if (file.size <= MAX_IMAGE_SIZE_BYTES) {
+          onImagesAttached([file]);
+          return;
+        }
+      }
+    }
+  } catch {
+    // No image in clipboard or plugin unavailable — fall through.
+  }
+
+  // 2. Try native readText (Tauri clipboard plugin).
+  try {
+    const text = await readText();
+    if (text) {
+      editor.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText(text);
+        } else {
+          $getRoot().getFirstDescendant()?.selectEnd();
+          const sel = $getSelection();
+          if ($isRangeSelection(sel)) sel.insertText(text);
+        }
+      });
+      return;
+    }
+  } catch {
+    // No text in clipboard — fall through.
+  }
+
+  // 3. DOM Async Clipboard API fallback (for browsers/WebViews where the
+  //    Tauri plugin may not be available, e.g. dev mode in a plain browser).
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.read) {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        for (const type of item.types) {
+          if (type.startsWith('image/')) {
+            const blob = await item.getType(type);
+            const ext = type.split('/')[1] ?? 'png';
+            const file = new File([blob], `pasted-${Date.now()}.${ext}`, {
+              type,
+            });
+            if (file.size <= MAX_IMAGE_SIZE_BYTES) {
+              onImagesAttached([file]);
+              return;
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // All fallbacks exhausted — nothing we can do. The user can use /screen.
+  }
 }
 
 /**
@@ -534,9 +641,11 @@ export function AskBarView({
   );
 
   /**
-   * Extracts image files from a clipboard paste. Returns true when images were
-   * attached so the editor suppresses the default text paste; false to let the
-   * editor paste text normally.
+   * DOM clipboardData fallback for paste. Fires only when the KEY_DOWN_COMMAND
+   * handler did NOT intercept Ctrl+V (e.g. Tauri plugin unavailable, or the
+   * paste was triggered by a non-keyboard mechanism such as the native Edit
+   * menu). Relies on getAsFile() which works in Chromium but may return null
+   * in WebKit — that gap is closed by the keydown native pipeline above.
    */
   const handlePaste = useCallback(
     (clipboard: DataTransfer | null): boolean => {
@@ -567,6 +676,17 @@ export function AskBarView({
       return true;
     },
     [isBusy, attachedImages.length, maxImages, onImagesAttached],
+  );
+
+  /**
+   * Native-first clipboard handler. Intercepts Ctrl+V before the paste event
+   * fires: tries Tauri readImage() → readText() → DOM navigator.clipboard.
+   * If all native paths succeed the paste event is suppressed entirely; if
+   * they all fail, the DOM paste event fires and handlePaste above runs.
+   */
+  const handleBeforePaste = useCallback(
+    (editor: LexicalEditor) => nativeClipboardPaste(editor, onImagesAttached),
+    [onImagesAttached],
   );
 
   // Suppress the paste error label while a drag is active so the drag-state
@@ -701,6 +821,7 @@ export function AskBarView({
               suggestionsOpen={showSuggestions}
               keyHandlers={keyHandlers}
               onPaste={handlePaste}
+              onBeforePaste={handleBeforePaste}
             />
           </div>
 

@@ -8,6 +8,8 @@
     "core:window:allow-start-dragging",
     "core:window:deny-internal-toggle-maximize",
     "core:window:allow-set-size",
-    "core:window:allow-set-focus"
+    "core:window:allow-set-focus",
+    "clipboard-manager:allow-read-image",
+    "clipboard-manager:allow-read-text"
   ]
 }

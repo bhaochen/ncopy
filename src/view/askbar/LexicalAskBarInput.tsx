@@ -17,6 +17,7 @@ import {
   COMMAND_PRIORITY_HIGH,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_UP_COMMAND,
+  KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
   KEY_TAB_COMMAND,
@@ -62,6 +63,13 @@ interface LexicalAskBarInputProps {
    * suppressed; false to let the editor paste text normally.
    */
   onPaste: (clipboard: DataTransfer | null) => boolean;
+  /**
+   * Intercepts Ctrl+V before the paste event. Handles paste entirely through
+   * the Tauri native clipboard plugin (readImage → readText → DOM fallback).
+   * Receives the Lexical editor for programmatic text insertion when the
+   * native clipboard provides text instead of using the DOM paste event.
+   */
+  onBeforePaste?: (editor: import('lexical').LexicalEditor) => Promise<void>;
 }
 
 /** Surfaces internal Lexical errors instead of silently corrupting state. */
@@ -155,15 +163,22 @@ export function BehaviorPlugin({
   suggestionsOpen,
   keyHandlers,
   onPaste,
+  onBeforePaste,
 }: {
   suggestionsOpen: boolean;
   keyHandlers: AskBarKeyHandlers;
   onPaste: (clipboard: DataTransfer | null) => boolean;
+  onBeforePaste?: (editor: import('lexical').LexicalEditor) => Promise<void>;
 }) {
   const [editor] = useLexicalComposerContext();
 
-  const latestRef = useRef({ suggestionsOpen, keyHandlers, onPaste });
-  latestRef.current = { suggestionsOpen, keyHandlers, onPaste };
+  const latestRef = useRef({
+    suggestionsOpen,
+    keyHandlers,
+    onPaste,
+    onBeforePaste,
+  });
+  latestRef.current = { suggestionsOpen, keyHandlers, onPaste, onBeforePaste };
 
   useEffect(() => {
     return mergeRegister(
@@ -229,6 +244,21 @@ export function BehaviorPlugin({
         COMMAND_PRIORITY_HIGH,
       ),
       editor.registerCommand(
+        KEY_DOWN_COMMAND,
+        (event) => {
+          const onBeforePaste = latestRef.current.onBeforePaste;
+          if (!onBeforePaste) return false;
+          // Ctrl+V (or Cmd+V on macOS)
+          if (!((event.ctrlKey || event.metaKey) && event.key === 'v'))
+            return false;
+          event.preventDefault();
+          event.stopPropagation();
+          void onBeforePaste(editor);
+          return true;
+        },
+        COMMAND_PRIORITY_HIGH,
+      ),
+      editor.registerCommand(
         PASTE_COMMAND,
         (event) => {
           const clipboard = (event as ClipboardEvent).clipboardData ?? null;
@@ -261,6 +291,7 @@ export function LexicalAskBarInput({
   suggestionsOpen,
   keyHandlers,
   onPaste,
+  onBeforePaste,
 }: LexicalAskBarInputProps): JSX.Element {
   const initialConfig = useMemo(
     () => ({
@@ -300,6 +331,7 @@ export function LexicalAskBarInput({
         suggestionsOpen={suggestionsOpen}
         keyHandlers={keyHandlers}
         onPaste={onPaste}
+        onBeforePaste={onBeforePaste}
       />
       <ValueSyncPlugin
         value={value}

@@ -2520,7 +2520,8 @@ pub fn run() {
     ({
         let b = tauri::Builder::default()
             .plugin(tauri_plugin_updater::Builder::new().build())
-            .plugin(tauri_plugin_dialog::init());
+            .plugin(tauri_plugin_dialog::init())
+            .plugin(tauri_plugin_clipboard_manager::init());
         #[cfg(target_os = "macos")]
         let b = b.menu(build_app_menu);
         #[cfg(target_os = "macos")]

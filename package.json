@@ -40,6 +40,7 @@
     "@fontsource/nunito": "^5.2.7",
     "@lexical/react": "^0.48.0",
     "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "framer-motion": "^12.38.0",
     "katex": "^0.16.44",
     "lexical": "^0.48.0",
