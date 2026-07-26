@@ -617,7 +617,8 @@ pub async fn capture_full_screen_command(
     //
     // macOS: CoreGraphics must run on the main thread. The anchor steers
     // multi-monitor capture to the display containing Thuki's window.
-    // Linux: run directly — no main-thread dependency for CLI tools.
+    // Linux: hide the window via CSS opacity (keeps the surface mapped so
+    // the compositor never retriggers window rules), capture, then restore.
     let (width, height, rgba_bytes) = {
         #[cfg(target_os = "macos")]
         {
@@ -640,7 +641,18 @@ pub async fn capture_full_screen_command(
         }
         #[cfg(not(target_os = "macos"))]
         {
-            capture_full_screen_pixels(None)?
+            // Make the window transparent so it does not appear in the
+            // full-screen capture, without unmapping the surface.
+            if let Some(w) = app_handle.get_webview_window("main") {
+                let _ = w.eval("document.documentElement.style.opacity='0'");
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let result = capture_full_screen_pixels(None);
+            if let Some(w) = app_handle.get_webview_window("main") {
+                let _ = w.eval("document.documentElement.style.opacity=''");
+                let _ = w.set_focus();
+            }
+            result?
         }
     };
 
