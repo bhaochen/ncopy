@@ -4710,6 +4710,7 @@ dependencies = [
  "dirs",
  "dom_smoothie",
  "futures-util",
+ "glib",
  "html-escape",
  "image",
  "keyring",

@@ -2517,6 +2517,21 @@ pub fn run() {
     // async-signal context. See `startup_guard::block_shutdown_signals`.
     startup_guard::block_shutdown_signals();
 
+    // Suppress the `libayatana-appindicator` deprecation warning (Linux only).
+    // The shared library prints a GLib WARNING recommending
+    // libayatana-appindicator-glib, but that variant is not available on all
+    // distros and the tray-icon crate's appindicator backend depends on GTK
+    // symbols that the GLib-only variant does not export. The warning itself
+    // is harmless — the tray works correctly — so we drop it quietly.
+    #[cfg(target_os = "linux")]
+    glib::log_set_handler(
+        Some("libayatana-appindicator"),
+        glib::LogLevels::LEVEL_WARNING,
+        false,
+        false,
+        |_, _, _| {},
+    );
+
     ({
         let b = tauri::Builder::default()
             .plugin(tauri_plugin_updater::Builder::new().build())

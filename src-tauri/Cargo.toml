@@ -52,6 +52,9 @@ sha2 = "0.11"
 libc = "0.2"
 keyring = { version = "3", features = ["sync-secret-service"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+glib = "0.18.5"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
 core-graphics = "0.25"
