@@ -67,15 +67,19 @@ pub async fn capture_screenshot_command(
 ) -> Result<Option<String>, String> {
     // On macOS via NSPanel, and on X11, hiding the window before the
     // screenshot prevents Thuki from appearing in the captured region.
-    // On Wayland, hide() unmaps the xdg-toplevel surface and show() remaps
-    // it, causing the compositor (Hyprland, KWin, etc.) to re-apply static
+    // On Wayland (Hyprland, KWin), hide() unmaps the xdg-toplevel surface
+    // and show() remaps it, causing the compositor to re-apply static
     // window rules — the window loses its floating geometry. Since Wayland
-    // has no client-side hide API, we skip the hide/show cycle entirely;
-    // the interactive tools (slurp, import, gnome-screenshot -a) let the
-    // user select a region around Thuki.
+    // has no equivalent to X11's Withdraw/Map that preserves geometry, we
+    // make the window content transparent via CSS opacity instead. This
+    // keeps the surface mapped so the compositor never retriggers rules,
+    // while still preventing Thuki from appearing in the screenshot.
     let is_wayland = is_running_wayland();
 
     let (saved_pos, saved_size) = if is_wayland {
+        if let Some(w) = app_handle.get_webview_window("main") {
+            let _ = w.eval("document.documentElement.style.opacity='0'");
+        }
         (None, None)
     } else {
         // Save geometry on the main thread, then hide.
@@ -97,9 +101,9 @@ pub async fn capture_screenshot_command(
         rx.await.unwrap_or((None, None))
     };
 
-    if saved_size.is_some() {
-        // A non-zero hide delay helps the window fully disappear before the
-        // screencapture crosshair appears.
+    if saved_size.is_some() || is_wayland {
+        // A non-zero delay helps the window fully disappear (or turn fully
+        // transparent) before the screencapture crosshair appears.
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
 
@@ -137,7 +141,14 @@ pub async fn capture_screenshot_command(
     }
 
     // Re-show / restore window state.
-    if !is_wayland {
+    if is_wayland {
+        // Restore opacity — the surface was never unmapped, so Hyprland
+        // preserves floating geometry without re-applying window rules.
+        if let Some(w) = app_handle.get_webview_window("main") {
+            let _ = w.eval("document.documentElement.style.opacity=''");
+            let _ = w.set_focus();
+        }
+    } else {
         let show_handle = app_handle.clone();
         let _ = app_handle.run_on_main_thread(move || {
             #[cfg(target_os = "macos")]
