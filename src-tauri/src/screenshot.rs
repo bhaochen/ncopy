@@ -121,23 +121,31 @@ pub async fn capture_screenshot_command(
     #[cfg(not(target_os = "macos"))]
     {
         // Try grim+slurp (Wayland/Hyprland), then ImageMagick import,
-        // then GNOME/KDE screenshot tools as fallback.
-        let grim = std::process::Command::new("sh")
-            .args(["-c", &format!("grim -g \"$(slurp)\" {path_str}")])
-            .status();
-        if grim.is_err() || grim.map_or(true, |s| !s.success()) {
-            let import = std::process::Command::new("import").arg(path_str).status();
-            if import.is_err() || import.map_or(true, |s| !s.success()) {
-                let gnome = std::process::Command::new("gnome-screenshot")
-                    .args(["-a", "-f", path_str])
+        // then GNOME/KDE screenshot tools as fallback. Run on a blocking
+        // thread so a panic (e.g. from a missing tool) never skips the
+        // opacity restore below.
+        let capture_path = path_str.to_string();
+        let _ = tokio::task::spawn_blocking(move || {
+            let grim = std::process::Command::new("sh")
+                .args(["-c", &format!("grim -g \"$(slurp)\" {capture_path}")])
+                .status();
+            if grim.is_err() || grim.map_or(true, |s| !s.success()) {
+                let import = std::process::Command::new("import")
+                    .arg(&capture_path)
                     .status();
-                if gnome.is_err() || gnome.map_or(true, |s| !s.success()) {
-                    let _ = std::process::Command::new("spectacle")
-                        .args(["-r", "-b", "-n", "-o", path_str])
+                if import.is_err() || import.map_or(true, |s| !s.success()) {
+                    let gnome = std::process::Command::new("gnome-screenshot")
+                        .args(["-a", "-f", &capture_path])
                         .status();
+                    if gnome.is_err() || gnome.map_or(true, |s| !s.success()) {
+                        let _ = std::process::Command::new("spectacle")
+                            .args(["-r", "-b", "-n", "-o", &capture_path])
+                            .status();
+                    }
                 }
             }
-        }
+        })
+        .await;
     }
 
     // Re-show / restore window state.
@@ -647,12 +655,17 @@ pub async fn capture_full_screen_command(
                 let _ = w.eval("document.documentElement.style.opacity='0'");
             }
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            let result = capture_full_screen_pixels(None);
+            // Always restore opacity — never let ? skip the cleanup.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                capture_full_screen_pixels(None)
+            }));
             if let Some(w) = app_handle.get_webview_window("main") {
                 let _ = w.eval("document.documentElement.style.opacity=''");
                 let _ = w.set_focus();
             }
-            result?
+            result.unwrap_or_else(|_| {
+                Err("full-screen capture panicked (tool crashed)".to_string())
+            })?
         }
     };
 
