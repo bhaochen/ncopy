@@ -18,7 +18,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion';
 import type React from 'react';
-import { useState, useEffect, useRef, useCallback, forwardRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import thukiLogo from '../../../src-tauri/icons/128x128.png';
 import { useFitOnboardingWindow } from '../../hooks/useFitOnboardingWindow';
@@ -340,8 +340,7 @@ function BuiltinModelCheck({ onUseOllama }: { onUseOllama: () => void }) {
  * (logo, title, privacy footer) so onboarding stays visually coherent; the
  * legacy markup itself is left untouched inside `OllamaModelCheck`.
  */
-const BuiltinShell = forwardRef<HTMLDivElement, { children: React.ReactNode }>(
-  function BuiltinShell({ children }, ref) {
+function BuiltinShell({ children, ref }: { children: React.ReactNode; ref: React.Ref<HTMLDivElement> }) {
     return (
       <div
         style={{
@@ -449,8 +448,7 @@ const BuiltinShell = forwardRef<HTMLDivElement, { children: React.ReactNode }>(
         </motion.div>
       </div>
     );
-  },
-);
+  }
 
 // ─── Legacy Ollama flow (kept verbatim) ──────────────────────────────────────
 

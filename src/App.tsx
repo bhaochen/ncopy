@@ -1077,13 +1077,10 @@ function App() {
   const isChatMode = messages.length > 0 || isGenerating || isSubmitPending;
   const previousIsChatModeRef = useRef(isChatMode);
 
-  // The "model ready, send your first message" nudge is a one-time prompt. Once
-  // the user has sent any message (entered chat mode), it is acknowledged for
-  // good, so it never reappears on a new conversation or the next summon.
-  const [readyNudgeAcknowledged, setReadyNudgeAcknowledged] = useState(false);
-  useEffect(() => {
-    if (isChatMode) setReadyNudgeAcknowledged(true);
-  }, [isChatMode]);
+  // Model-ready nudge: shown on first download completion before the user has
+  // sent any message. Once isChatMode is true (any message sent), the nudge
+  // stays hidden because downloadPhase leaves 'ready' immediately after use.
+  // No explicit latch needed — isChatMode covers it within the transient window.
 
   /**
    * Manual first-save stays gated on a finished assistant reply. Auto-save can
@@ -1296,6 +1293,7 @@ function App() {
   }, [
     config.window.overlayWidth,
     config.window.maxChatHeight,
+    windowContentHeight,
     overlayState,
     onboardingStage,
     safeModeRecovery,
@@ -3054,7 +3052,7 @@ function App() {
     // has sent a message) it never reappears, including on a new conversation
     // or the next summon.
     if (downloadPhase === 'ready') {
-      return readyNudgeAcknowledged
+      return isChatMode
         ? null
         : { kind: 'ready', modelName: downloadModelName };
     }
@@ -3097,7 +3095,7 @@ function App() {
     downloadPhase,
     downloadState,
     downloadModelName,
-    readyNudgeAcknowledged,
+    isChatMode,
     downloadCombinedBytes,
     downloadResumeSeedBytes,
     downloadGrandTotalBytes,
