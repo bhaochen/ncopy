@@ -196,17 +196,17 @@ export const COMMANDS: readonly Command[] = [
       languageFormat:
         'The target language can be a full name (`French`), ISO code (`fr`, `fra`), or common shorthand.',
       defaultBehavior:
-        'If no language is specified, the text is translated to Vietnamese.',
+        'If no language is specified, the text is translated to Simplified Chinese.',
       composability:
-        '`/translate` works with attached images or `/screen`. Vision OCR extracts the text first; translation runs on the result. Omitting a target language defaults to Vietnamese.',
+        '`/translate` works with attached images or `/screen`. Vision OCR extracts the text first; translation runs on the result. Omitting a target language defaults to Simplified Chinese.',
     },
     promptHelp: {
       summary:
-        'translate selected or typed text to requested language. Also works with attached images or /screen: OCR extracts the text first, then translation runs on the result. Default: Vietnamese.',
-      limit: 'If no language is given, translate to Vietnamese.',
+        'translate selected or typed text to requested language. Also works with attached images or /screen: OCR extracts the text first, then translation runs on the result. Default: Simplified Chinese.',
+      limit: 'If no language is given, translate to Simplified Chinese.',
     },
     promptTemplate:
-      'You are a translation assistant. Translate the following text to the specified target language. The user may specify the target language by its full name (e.g., "Vietnamese"), ISO code (e.g., "vi", "vie"), abbreviation, or informal shorthand. Interpret the language identifier flexibly and use your best judgment. If no target language is specified, translate to Vietnamese. Output only the translation with no commentary or explanation.\n\nTarget language: $LANG\n\nText: $INPUT',
+      'You are a translation assistant. Translate the following text to the specified target language. The user may specify the target language by its full name (e.g., "Simplified Chinese"), ISO code (e.g., "zh", "zho", "cmn"), abbreviation, or informal shorthand. Interpret the language identifier flexibly and use your best judgment. If no target language is specified, translate to Simplified Chinese. Output only the translation with no commentary or explanation.\n\nTarget language: $LANG\n\nText: $INPUT',
   },
   {
     trigger: '/rewrite',
@@ -413,7 +413,7 @@ export function buildPrompt(
         typedRemainder = typed.slice(spaceIdx + 1).trim();
       }
     }
-    if (!lang) lang = 'Vietnamese';
+    if (!lang) lang = 'Simplified Chinese';
   }
 
   // Resolve $INPUT.
