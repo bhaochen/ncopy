@@ -120,30 +120,47 @@ pub async fn capture_screenshot_command(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        // Try grim+slurp (Wayland/Hyprland), then ImageMagick import,
-        // then GNOME/KDE screenshot tools as fallback. Run on a blocking
-        // thread so a panic (e.g. from a missing tool) never skips the
-        // opacity restore below.
+        // Run capture tools on a blocking thread so a panic never skips
+        // the opacity restore below. We try one tool then stop: if a tool
+        // starts at all (even if the user cancels with Escape → non-zero
+        // exit), we never launch a fallback. Only Err (binary not found)
+        // advances to the next tool.
         let capture_path = path_str.to_string();
         let _ = tokio::task::spawn_blocking(move || {
-            let grim = std::process::Command::new("sh")
-                .args(["-c", &format!("grim -g \"$(slurp)\" {capture_path}")])
-                .status();
-            if grim.is_err() || grim.map_or(true, |s| !s.success()) {
-                let import = std::process::Command::new("import")
-                    .arg(&capture_path)
-                    .status();
-                if import.is_err() || import.map_or(true, |s| !s.success()) {
-                    let gnome = std::process::Command::new("gnome-screenshot")
-                        .args(["-a", "-f", &capture_path])
-                        .status();
-                    if gnome.is_err() || gnome.map_or(true, |s| !s.success()) {
-                        let _ = std::process::Command::new("spectacle")
-                            .args(["-r", "-b", "-n", "-o", &capture_path])
-                            .status();
-                    }
+            let tool_started = |status: std::io::Result<std::process::ExitStatus>| status.is_ok();
+
+            if is_running_wayland() {
+                // grim + slurp (Wayland / Hyprland)
+                if tool_started(
+                    std::process::Command::new("sh")
+                        .args(["-c", &format!("grim -g \"$(slurp)\" {capture_path}")])
+                        .status(),
+                ) {
+                    return;
+                }
+            } else {
+                // ImageMagick import (X11)
+                if tool_started(
+                    std::process::Command::new("import")
+                        .arg(&capture_path)
+                        .status(),
+                ) {
+                    return;
                 }
             }
+
+            // Fallbacks — only reached if the platform-preferred tool was
+            // not installed (Err from Command::new / NotFound).
+            if tool_started(
+                std::process::Command::new("gnome-screenshot")
+                    .args(["-a", "-f", &capture_path])
+                    .status(),
+            ) {
+                return;
+            }
+            let _ = std::process::Command::new("spectacle")
+                .args(["-r", "-b", "-n", "-o", &capture_path])
+                .status();
         })
         .await;
     }
