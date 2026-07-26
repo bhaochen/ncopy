@@ -1215,7 +1215,9 @@ function App() {
   // the user resizes it manually (e.g. tiled/floating WM on Linux).
   const [windowContentHeight, setWindowContentHeight] = useState(
     window.screen.availHeight > 0
-      ? window.screen.availHeight - CONTAINER_VERTICAL_PADDING - SCREEN_EDGE_MARGIN
+      ? window.screen.availHeight -
+          CONTAINER_VERTICAL_PADDING -
+          SCREEN_EDGE_MARGIN
       : config.window.maxChatHeight,
   );
 
@@ -2407,9 +2409,18 @@ function App() {
     (e: React.DragEvent) => {
       e.preventDefault();
       if (isGenerating || isSubmitPending) return;
-      setIsDragOver(
-        attachedImages.length >= config.window.maxImages ? 'max' : 'normal',
-      );
+      // Text drags are always accepted (no capacity limit). Only image drops
+      // are capped, so check for text first to avoid misleading red ring.
+      const hasText =
+        e.dataTransfer?.types?.includes?.('text/plain') ||
+        e.dataTransfer?.types?.includes?.('text/uri-list');
+      if (hasText) {
+        setIsDragOver('normal');
+      } else {
+        setIsDragOver(
+          attachedImages.length >= config.window.maxImages ? 'max' : 'normal',
+        );
+      }
     },
     [
       isGenerating,
@@ -2435,6 +2446,21 @@ function App() {
       e.preventDefault();
       setIsDragOver(null);
       if (isGenerating || isSubmitPending) return;
+
+      // Handle text drop as a quote (dragged selected text from another app).
+      const text =
+        typeof e.dataTransfer?.getData === 'function'
+          ? e.dataTransfer.getData('text/plain')
+          : '';
+      if (text) {
+        const sanitized = sanitizeContext(text, config.quote.maxContextLength);
+        if (sanitized) {
+          setSelectedContext(sanitized);
+          return;
+        }
+      }
+
+      // Handle image file drop.
       const files = e.dataTransfer?.files;
       if (!files) return;
       const remaining = config.window.maxImages - attachedImages.length;
@@ -2456,6 +2482,8 @@ function App() {
       attachedImages.length,
       handleImagesAttached,
       config.window.maxImages,
+      config.quote.maxContextLength,
+      setSelectedContext,
     ],
   );
 

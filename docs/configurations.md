@@ -238,7 +238,7 @@ UI configuration for the floating Thuki window: geometry knobs and input attachm
 
 ### `[quote]`
 
-Controls how text you select in another app (and bring to Thuki) appears as a quote in the input bar, and how much of it actually gets sent to the AI.
+Controls how text you bring to Thuki — selected in another app via double-tap Control, or dragged and dropped directly into the window — appears as a quote in the input bar, and how much of it actually gets sent to the AI.
 
 | Constant             | Default | Tunable? | Why not tunable | Bounds       | Description                                                                                                                                                                                                                                                        |
 | :------------------- | :------ | :------- | :-------------- | :----------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

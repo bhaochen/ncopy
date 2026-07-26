@@ -66,7 +66,11 @@ function fromPersisted(msg: PersistedMessage): Message {
       searchSources && searchSources.length > 0
         ? searchSources
         : imageHits && imageHits.length > 0
-          ? imageHits.map((h) => ({ title: h.title, url: h.url, attribution: h.source }))
+          ? imageHits.map((h) => ({
+              title: h.title,
+              url: h.url,
+              attribution: h.source,
+            }))
           : undefined,
     fromSearch:
       (searchSources !== undefined && searchSources.length > 0) ||
