@@ -195,11 +195,14 @@ type PendingSubmit =
       think: boolean;
     };
 
-/** Total transparent padding around the morphing container: pt-2(8) + pb-6(24) + motion py-2(16). */
-const CONTAINER_VERTICAL_PADDING = 48;
+/** Transparent padding around the morphing container. Zero: the UI sits flush
+ * against the screen edges (no transparent band around the card). */
+const CONTAINER_VERTICAL_PADDING = 0;
 
-/** Safety margin so the window never sits flush against the screen edge. */
-const SCREEN_EDGE_MARGIN = 20;
+/** Safety margin so the window never sits flush against the screen edge. Zero:
+ * the chat is allowed to extend all the way to the bottom of the available
+ * screen area. */
+const SCREEN_EDGE_MARGIN = 0;
 
 /**
  * Collapsed-bar height used as the seed for the show-time upward-grow Y math
@@ -1431,9 +1434,8 @@ function App() {
                 continue;
               }
 
-              // Settled chat/ask. Unchanged content-driven sizing.
-              // Total vertical room: 8px (pt-2) + 24px (pb-6) + 16px (motion py-2) = 48px.
-              // This ensures the tightened drop shadows aren't clipped by the native window edge.
+              // Settled chat/ask. Unchanged content-driven sizing. No extra
+              // vertical room: the UI sits flush against the window edge.
               let targetHeight =
                 Math.ceil(rect.height) + CONTAINER_VERTICAL_PADDING;
 
@@ -1658,8 +1660,9 @@ function App() {
     // current position. computeExpandTarget picks which corner of the panel is
     // pinned to the icon (so it unfolds into open space) and the resulting
     // on-screen top-left. That anchor drives the chat's transform-origin and
-    // the mascot's corner. Height includes CONTAINER_VERTICAL_PADDING so the
-    // bottom composer is not clipped before settleMorphPhase's re-measure.
+    // the mascot's corner. No transparent padding is added to the height
+    // (CONTAINER_VERTICAL_PADDING is 0); settleMorphPhase re-measures the
+    // frame after settling.
     //
     // Flicker-free ordering (all three layers matter):
     //   1. the mascot is opacity 0 the moment morphPhase is 'expanding';
@@ -4321,14 +4324,14 @@ function App() {
   }
 
   return (
-    // Minimal padding (pt-2 pb-6) provides just enough physical clearance for the
-    // tightened drop shadow to render without clipping at the native window edge.
+    // No transparent padding: the overlay card sits flush against the screen
+    // edges (there is no transparent band around the UI).
     <div
       onMouseDown={handleDragStart}
       onDragOver={handleRootDragOver}
       onDragLeave={handleRootDragLeave}
       onDrop={handleRootDrop}
-      className={`flex flex-col items-center ${growsUpward ? 'justify-end' : 'justify-start'} h-screen w-screen ${isSettledMinimized ? '' : 'px-3 pt-2 pb-6'} bg-transparent overflow-visible`}
+      className={`flex flex-col items-center ${growsUpward ? 'justify-end' : 'justify-start'} h-screen w-screen bg-transparent overflow-visible`}
     >
       <AnimatePresence mode="wait">
         {shouldRenderOverlay ? (
@@ -4341,7 +4344,7 @@ function App() {
             className={
               isSettledMinimized
                 ? 'overflow-visible'
-                : 'w-full px-4 py-2 overflow-visible'
+                : 'w-full overflow-visible'
             }
           >
             {/* Relative wrapper - positioning context for absolute-positioned

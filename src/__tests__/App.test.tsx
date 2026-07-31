@@ -2621,12 +2621,12 @@ describe('App', () => {
         triggerResize(container!, 60);
       });
 
-      // bottomY(884) - targetHeight(108) = 776
+      // bottomY(884) - targetHeight(60) = 824 (no transparent padding added)
       expect(invoke).toHaveBeenCalledWith('set_window_frame', {
         x: 100,
-        y: 776,
+        y: 824,
         width: 600,
-        height: 108,
+        height: 60,
       });
     });
 
@@ -2715,12 +2715,12 @@ describe('App', () => {
       act(() => {
         triggerResize(container2!, 60);
       });
-      // bottomY = 804+80 = 884. 884-108 = 776.
+      // bottomY = 804+80 = 884. 884-60 = 824 (no transparent padding added).
       expect(invoke).toHaveBeenCalledWith('set_window_frame', {
         x: 100,
-        y: 776,
+        y: 824,
         width: 600,
-        height: 108,
+        height: 60,
       });
     });
   });
@@ -2796,12 +2796,12 @@ describe('App', () => {
       await flushPaintYield();
 
       // The ask bar is now the mounted surface, so the hand-back effect
-      // must size against its real container (48 = CONTAINER_VERTICAL_PADDING
+      // must size against its real container (CONTAINER_VERTICAL_PADDING is 0
       // in App.tsx; jsdom reports 0 layout height), not leave the window at
       // the card's old size or the collapsed fallback (80).
       expect(document.querySelector('.morphing-container')).not.toBeNull();
       expect(__mockWindow.setSize).toHaveBeenCalledWith(
-        new LogicalSize(DEFAULT_CONFIG.window.overlayWidth, 48),
+        new LogicalSize(DEFAULT_CONFIG.window.overlayWidth, 0),
       );
     });
 
@@ -10077,21 +10077,21 @@ describe('App', () => {
       expect(layoutWrappersAfter.length).toBe(0);
     });
 
-    it('strips padding from root container when minimized and restores on un-minimize', async () => {
+    it('keeps the root container padding-free in every state (flush-to-edge)', async () => {
       await enterChatMode();
 
-      // Before minimize: root has px-3 in className
+      // Before minimize: root never carries transparent padding classes
       const rootBefore = document.querySelector('.h-screen');
-      expect(rootBefore?.className).toContain('px-3');
-      expect(rootBefore?.className).toContain('pt-2');
-      expect(rootBefore?.className).toContain('pb-6');
+      expect(rootBefore?.className).not.toContain('px-3');
+      expect(rootBefore?.className).not.toContain('pt-2');
+      expect(rootBefore?.className).not.toContain('pb-6');
 
       const minimizeBtn = screen.getByRole('button', { name: /minimize/i });
       await act(async () => {
         fireEvent.click(minimizeBtn);
       });
 
-      // After minimize: root must NOT have px-3/pt-2/pb-6
+      // After minimize: still padding-free
       const rootAfter = document.querySelector('.h-screen');
       expect(rootAfter?.className).not.toContain('px-3');
       expect(rootAfter?.className).not.toContain('pt-2');
@@ -10105,9 +10105,11 @@ describe('App', () => {
       });
       await act(async () => {});
 
-      // After restore: padding is back
+      // After restore: still padding-free
       const rootRestored = document.querySelector('.h-screen');
-      expect(rootRestored?.className).toContain('px-3');
+      expect(rootRestored?.className).not.toContain('px-3');
+      expect(rootRestored?.className).not.toContain('pt-2');
+      expect(rootRestored?.className).not.toContain('pb-6');
     });
 
     it('restores from the icon and clears the unseen indicator', async () => {
@@ -10157,14 +10159,13 @@ describe('App', () => {
 
       // On restore the OS window is positioned on screen and grown to full
       // chat size in one native frame set. With the icon away from any edge,
-      // the window keeps the icon's top-left (200,150). Height includes
-      // CONTAINER_VERTICAL_PADDING (48) so the bottom composer is not clipped
-      // before settleMorphPhase's post-settle re-measure.
+      // the window keeps the icon's top-left (200,150). Height is the full
+      // chat height (no transparent padding is added).
       expect(invoke).toHaveBeenCalledWith('set_window_frame', {
         x: 200,
         y: 150,
         width: DEFAULT_CONFIG.window.overlayWidth,
-        height: DEFAULT_CONFIG.window.maxChatHeight + 48,
+        height: DEFAULT_CONFIG.window.maxChatHeight,
       });
 
       // ConversationView shown again with same messages
@@ -10215,7 +10216,7 @@ describe('App', () => {
         x: 1372 + 68 - DEFAULT_CONFIG.window.overlayWidth,
         y: 100,
         width: DEFAULT_CONFIG.window.overlayWidth,
-        height: DEFAULT_CONFIG.window.maxChatHeight + 48,
+        height: DEFAULT_CONFIG.window.maxChatHeight,
       });
     });
 
@@ -10255,9 +10256,9 @@ describe('App', () => {
       // unfolds upward instead of clipping off the bottom.
       expect(invoke).toHaveBeenCalledWith('set_window_frame', {
         x: 100,
-        y: 832 + 68 - (DEFAULT_CONFIG.window.maxChatHeight + 48),
+        y: 832 + 68 - DEFAULT_CONFIG.window.maxChatHeight,
         width: DEFAULT_CONFIG.window.overlayWidth,
-        height: DEFAULT_CONFIG.window.maxChatHeight + 48,
+        height: DEFAULT_CONFIG.window.maxChatHeight,
       });
       // Bottom-anchored → the root container grows upward.
       expect(document.querySelector('.h-screen.justify-end')).not.toBeNull();
@@ -10297,7 +10298,7 @@ describe('App', () => {
 
       // The chat now occupies this frame (top-right anchored). Point the
       // collapse query at it.
-      const fullHeight = DEFAULT_CONFIG.window.maxChatHeight + 48;
+      const fullHeight = DEFAULT_CONFIG.window.maxChatHeight;
       __setWindowGeometry({
         x: 1372 + 68 - DEFAULT_CONFIG.window.overlayWidth,
         y: 100,
@@ -10362,8 +10363,8 @@ describe('App', () => {
 
     it('recomputes upward growth on restore when near screen bottom', async () => {
       // Place window near the screen bottom so shouldGrowUp becomes true.
-      // maxChatHeight=648, CONTAINER_VERTICAL_PADDING=48: need windowY + 648 + 48 > screenBottom.
-      // With monitorHeight=900, monitorY=0: windowY=700 → 700+696=1396 > 900 → growsUpward.
+      // maxChatHeight=648, no container padding: need windowY + 648 > screenBottom.
+      // With monitorHeight=900, monitorY=0: windowY=700 → 1348 > 900 → growsUpward.
       __setWindowGeometry({
         x: 100,
         y: 700,
@@ -10403,7 +10404,7 @@ describe('App', () => {
     });
 
     it('recomputes downward growth on restore when away from screen bottom', async () => {
-      // windowY=100, monitorHeight=900: 100+648+48=796 < 900 → growsDownward.
+      // windowY=100, monitorHeight=900: 100+648=748 < 900 → growsDownward.
       __setWindowGeometry({
         x: 100,
         y: 100,
@@ -10525,12 +10526,12 @@ describe('App', () => {
 
       // The recovered monitor (height 900) makes the near-bottom icon (832+68)
       // anchor bottom and grow upward, exactly as if currentMonitor had
-      // returned it. The clamped top = 900 - (maxChatHeight + 48).
+      // returned it. The clamped top = 900 - maxChatHeight.
       expect(invoke).toHaveBeenCalledWith('set_window_frame', {
         x: 100,
-        y: 832 + 68 - (DEFAULT_CONFIG.window.maxChatHeight + 48),
+        y: 832 + 68 - DEFAULT_CONFIG.window.maxChatHeight,
         width: DEFAULT_CONFIG.window.overlayWidth,
-        height: DEFAULT_CONFIG.window.maxChatHeight + 48,
+        height: DEFAULT_CONFIG.window.maxChatHeight,
       });
       expect(document.querySelector('.h-screen.justify-end')).not.toBeNull();
 

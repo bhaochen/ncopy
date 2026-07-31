@@ -461,15 +461,18 @@ pub fn capture_activation_context(overlay_is_visible: bool) -> ActivationContext
 const ANCHOR_OFFSET_X: f64 = 8.0;
 /// Distance (logical pts) above the anchor bottom edge for the bar top.
 const ANCHOR_OFFSET_Y: f64 = 2.0;
-/// Bottom padding of the overlay window in logical pts (pb-6 = 24 pt + motion py-2
-/// bottom = 8 pt). Added when positioning the bar **above** a selection so the
-/// bar's visible content bottom - not the transparent window edge - aligns with
-/// the selection boundary.
-const WINDOW_BOTTOM_PADDING: f64 = 32.0;
-/// Minimum distance from any screen edge (logical pts).
-pub(crate) const SCREEN_MARGIN: f64 = 16.0;
-/// macOS menu bar height approximation (logical pts).
-pub(crate) const MENU_BAR_HEIGHT: f64 = 24.0;
+/// Extra height to reserve for the overlay window's transparent bottom padding.
+/// Zero: the frontend's morphing container has no transparent padding (the UI
+/// sits flush against the window edge), so the window's visible bottom edge is
+/// its real bottom edge.
+const WINDOW_BOTTOM_PADDING: f64 = 0.0;
+/// Minimum distance from any screen edge (logical pts). Zero: the overlay is
+/// allowed to sit flush against the screen edges (no transparent band).
+pub(crate) const SCREEN_MARGIN: f64 = 0.0;
+/// macOS menu bar height approximation (logical pts). Intentionally 0: the
+/// overlay spawns flush against the top screen edge. (macOS builds that want
+/// menu-bar clearance would restore this to ~24.)
+pub(crate) const MENU_BAR_HEIGHT: f64 = 0.0;
 /// Result of the window placement calculation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowPlacement {
@@ -489,7 +492,8 @@ fn top_center(
     let x_min = SCREEN_MARGIN;
     let x_max = (screen_width - window_width - SCREEN_MARGIN).max(x_min);
     let x = ((screen_width - window_width) / 2.0).clamp(x_min, x_max);
-    let y = MENU_BAR_HEIGHT + SCREEN_MARGIN + 120.0;
+    // Flush against the top screen edge: no menu-bar or margin offset.
+    let y = 0.0;
     WindowPlacement { x, y }
 }
 
@@ -659,7 +663,8 @@ mod tests {
     fn no_selection_returns_top_center() {
         let p = calculate_window_position(&ctx_no_selection(), SW, SH, WW, WH);
         assert_eq!(p.x, (SW - WW) / 2.0);
-        assert_eq!(p.y, MENU_BAR_HEIGHT + SCREEN_MARGIN + 120.0);
+        // Flush against the top screen edge: no menu-bar or margin offset.
+        assert_eq!(p.y, 0.0);
     }
 
     #[test]
@@ -673,7 +678,7 @@ mod tests {
         let x_min = SCREEN_MARGIN;
         let x_max = (SW - WW - SCREEN_MARGIN).max(x_min);
         assert_eq!(p.x, ((SW - WW) / 2.0).clamp(x_min, x_max));
-        assert_eq!(p.y, MENU_BAR_HEIGHT + SCREEN_MARGIN + 120.0);
+        assert_eq!(p.y, 0.0);
     }
 
     #[test]
@@ -697,9 +702,10 @@ mod tests {
     }
 
     #[test]
-    fn selection_near_top_clamps_to_menu_bar() {
-        // Selection near top of screen: below_y = 18, clamped to y_min = 40.
-        let ctx = ctx_with_bounds(100.0, 0.0, 80.0, 20.0);
+    fn selection_near_top_clamps_to_screen_edge() {
+        // Selection flush with the very top edge: below_y = -2, clamped to
+        // y_min = 0 (the bar must not extend above the screen).
+        let ctx = ctx_with_bounds(100.0, 0.0, 80.0, 0.0);
         let p = calculate_window_position(&ctx, SW, SH, WW, WH);
         assert_eq!(p.y, MENU_BAR_HEIGHT + SCREEN_MARGIN);
     }
@@ -713,10 +719,10 @@ mod tests {
     }
 
     #[test]
-    fn flipped_x_is_clamped_by_screen_margin() {
+    fn flipped_x_is_clamped_at_screen_edge() {
         // Selection starts at x=10, end at x=1430 (near right edge).
-        // preferred_x = 1430 + 8 = 1438. 1438 + 600 = 2038 > 1440 - 16 = 1424 → flip.
-        // flipped_x = (10.0 - 600.0 - 8.0).max(16.0) = (-598.0).max(16.0) = 16.0
+        // preferred_x = 1430 + 8 = 1438. 1438 + 600 = 2038 > 1440 - 0 = 1440 → flip.
+        // flipped_x = (10.0 - 600.0 - 8.0).max(0.0) = (-598.0).max(0.0) = 0.0
         let ctx = ctx_with_bounds(10.0, 300.0, 1420.0, 20.0);
         let p = calculate_window_position(&ctx, SW, SH, WW, WH);
         assert_eq!(p.x, SCREEN_MARGIN);
@@ -724,20 +730,20 @@ mod tests {
 
     #[test]
     fn y_flips_above_when_selection_near_screen_bottom() {
-        // Selection: y=870, h=20. below_y=888. 888+80=968 > 884 → flip above.
-        // fixed_bottom = min(870-2+32, 900) = 900. y = (900-80).max(40) = 820.
+        // Selection: y=870, h=20. below_y=888. 888+80=968 > 900 → flip above.
+        // fixed_bottom = min(870-2+0, 900) = 868. y = (868-80).max(0) = 788.
         let ctx = ctx_with_bounds(100.0, 870.0, 80.0, 20.0);
         let p = calculate_window_position(&ctx, SW, SH, WW, WH);
-        assert_eq!(p.y, 820.0);
+        assert_eq!(p.y, 788.0);
     }
 
     #[test]
-    fn y_is_clamped_when_near_menu_bar() {
-        // Selection bottom at 30 → below_y = 28. 28+80=108 < 884 → no flip.
-        // below_y.max(y_min) = 28.max(40) = 40.
+    fn selection_near_top_places_just_below() {
+        // Selection bottom at 30 → below_y = 28. 28+80=108 < 900 → no flip.
+        // below_y(28) > y_min(0), so the bar sits 28px below the top edge.
         let ctx = ctx_with_bounds(100.0, 10.0, 80.0, 20.0);
         let p = calculate_window_position(&ctx, SW, SH, WW, WH);
-        assert_eq!(p.y, MENU_BAR_HEIGHT + SCREEN_MARGIN);
+        assert_eq!(p.y, 28.0);
     }
 
     #[test]
