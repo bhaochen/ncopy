@@ -121,11 +121,11 @@ Translates text to another language.
 
 **Behavior:** Outputs only the translation with no commentary or explanation. Does not trigger web search.
 
-**Composable:** `/translate` works with attached images or `/screen`. Vision OCR extracts the text first; translation runs on the result. Omitting a target language defaults to Vietnamese.
+**Composable:** `/translate` works with attached images or `/screen`. Vision OCR extracts the text first; translation runs on the result. Omitting a target language defaults to Simplified Chinese.
 
 **Language format:** The target language can be a full name (`French`), ISO code (`fr`, `fra`), or common shorthand.
 
-**Default behavior:** If no language is specified, the text is translated to Vietnamese.
+**Default behavior:** If no language is specified, the text is translated to Simplified Chinese.
 
 ---
 

@@ -14,7 +14,7 @@ If the user asks what slash commands are available, what built-in commands exist
 
 /think: enable extended reasoning before answering.
 
-/translate: translate selected or typed text to requested language. Also works with attached images or /screen: OCR extracts the text first, then translation runs on the result. Default: Vietnamese.
+/translate: translate selected or typed text to requested language. Also works with attached images or /screen: OCR extracts the text first, then translation runs on the result. Default: Simplified Chinese.
 
 /rewrite: rewrite text so it sounds like natural, casual, everyday native English while keeping the meaning, personality, formatting, and point of view. Preserves Markdown structure, quotes, code, and links; only the prose inside them is improved. Also works with attached images or /screen: OCR extracts the text first, then rewrites it.
 

@@ -69,6 +69,8 @@ export function renderCommandsMarkdown(): string {
     '',
     'This means you can highlight text anywhere on screen, summon Thuki with double-tap Control, type a command, and hit Enter without retyping the selected content.',
     '',
+    'You can also drag and drop selected text from any app directly into the Thuki window — it appears as a quote above the input bar, the same way text captured via Accessibility on overlay show works.',
+    '',
     '## Image input on text-only models',
     '',
     '`/extract`, `/tldr`, `/translate`, `/rewrite`, `/refine`, `/bullets`, `/todos`, and `/explain` pull the text out of attached images locally via macOS Vision OCR, so they work even when the active model has no vision capability. They read text, not scenes: describing a textless image still needs a vision model. Only plain submits and `/screen` alone send the image itself to the model. See [OCR-supported commands](./ocr-commands.md) for the full list and details.',

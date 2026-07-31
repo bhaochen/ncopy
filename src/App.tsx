@@ -1081,9 +1081,17 @@ function App() {
   const previousIsChatModeRef = useRef(isChatMode);
 
   // Model-ready nudge: shown on first download completion before the user has
-  // sent any message. Once isChatMode is true (any message sent), the nudge
-  // stays hidden because downloadPhase leaves 'ready' immediately after use.
-  // No explicit latch needed — isChatMode covers it within the transient window.
+  // sent any message. Once the user sends any message, the nudge must never
+  // reappear — including on a new conversation or the next summon, where
+  // `isChatMode` resets but the download phase can still read `ready`. This
+  // latch is set the first time a message is in flight while the download is
+  // `ready`, and gates the nudge in `downloadStripStatus` below.
+  const readyNudgeConsumedRef = useRef(false);
+  useEffect(() => {
+    if (isChatMode && downloadPhase === 'ready') {
+      readyNudgeConsumedRef.current = true;
+    }
+  }, [isChatMode, downloadPhase]);
 
   /**
    * Manual first-save stays gated on a finished assistant reply. Auto-save can
@@ -3053,8 +3061,9 @@ function App() {
     }
     // The ready prompt invites the first message; once acknowledged (the user
     // has sent a message) it never reappears, including on a new conversation
-    // or the next summon.
-    if (downloadPhase === 'ready') {
+    // or the next summon. `readyNudgeConsumedRef` carries that latch across
+    // session resets (isChatMode alone can't: it goes false on a fresh show).
+    if (downloadPhase === 'ready' && !readyNudgeConsumedRef.current) {
       return isChatMode
         ? null
         : { kind: 'ready', modelName: downloadModelName };

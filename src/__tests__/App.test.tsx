@@ -6772,7 +6772,7 @@ describe('App', () => {
       });
     });
 
-    it('/screen /translate with no language defaults to Vietnamese', async () => {
+    it('/screen /translate with no language defaults to Simplified Chinese', async () => {
       enableChannelCaptureWithResponses({
         capture_full_screen_command: '/tmp/screen.jpg',
         extract_text_command: 'Bonjour le monde',
@@ -6799,7 +6799,7 @@ describe('App', () => {
           .mock.calls.find((c) => c[0] === 'ask_model');
         expect(askCall).toBeDefined();
         const args = askCall![1] as Record<string, unknown>;
-        expect(args.message).toContain('Target language: Vietnamese');
+        expect(args.message).toContain('Target language: Simplified Chinese');
         expect(args.message).toContain('Bonjour le monde');
       });
     });
@@ -8717,7 +8717,7 @@ describe('App', () => {
       });
     });
 
-    it('/translate with image and no language defaults to Vietnamese', async () => {
+    it('/translate with image and no language defaults to Simplified Chinese', async () => {
       enableChannelCaptureWithResponses({
         save_image_command: '/tmp/staged/img1.jpg',
         extract_text_command: 'Bonjour le monde',
@@ -8754,7 +8754,7 @@ describe('App', () => {
           .mock.calls.find((c) => c[0] === 'ask_model');
         expect(askCall).toBeDefined();
         const args = askCall![1] as Record<string, unknown>;
-        expect(args.message).toContain('Target language: Vietnamese');
+        expect(args.message).toContain('Target language: Simplified Chinese');
         expect(args.message).toContain('Bonjour le monde');
       });
     });
