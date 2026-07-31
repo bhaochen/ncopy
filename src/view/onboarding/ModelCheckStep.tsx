@@ -340,115 +340,121 @@ function BuiltinModelCheck({ onUseOllama }: { onUseOllama: () => void }) {
  * (logo, title, privacy footer) so onboarding stays visually coherent; the
  * legacy markup itself is left untouched inside `OllamaModelCheck`.
  */
-function BuiltinShell({ children, ref }: { children: React.ReactNode; ref: React.Ref<HTMLDivElement> }) {
-    return (
-      <div
+function BuiltinShell({
+  children,
+  ref,
+}: {
+  children: React.ReactNode;
+  ref: React.Ref<HTMLDivElement>;
+}) {
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'transparent',
+        fontFamily: 'inherit',
+      }}
+    >
+      <motion.div
+        ref={ref}
+        initial={{ opacity: 0, scale: 0.97, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 28 }}
         style={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: 'transparent',
-          fontFamily: 'inherit',
+          width: 720,
+          // The card is a flex child of a centering wrapper; without this it
+          // shrinks toward the window width when `useFitOnboardingWindow`
+          // measures it mid-resize (window still at the narrow base), which
+          // then locks the fit narrow. Pinning the width keeps the measured
+          // size invariant so the picker always lands at its full width.
+          flexShrink: 0,
+          background:
+            'radial-gradient(ellipse 80% 55% at 50% 0%, rgba(255,141,92,0.14) 0%, rgba(28,24,20,0.97) 60%), rgba(28,24,20,0.97)',
+          border: '1px solid rgba(255, 141, 92, 0.2)',
+          borderRadius: 24,
+          padding: '26px 22px 22px',
+          boxShadow: '0 0 40px rgba(255,100,40,0.07)',
+          position: 'relative',
+          overflow: 'hidden',
         }}
       >
-        <motion.div
-          ref={ref}
-          initial={{ opacity: 0, scale: 0.97, y: 8 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+        <div
           style={{
-            width: 720,
-            // The card is a flex child of a centering wrapper; without this it
-            // shrinks toward the window width when `useFitOnboardingWindow`
-            // measures it mid-resize (window still at the narrow base), which
-            // then locks the fit narrow. Pinning the width keeps the measured
-            // size invariant so the picker always lands at its full width.
-            flexShrink: 0,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 1,
             background:
-              'radial-gradient(ellipse 80% 55% at 50% 0%, rgba(255,141,92,0.14) 0%, rgba(28,24,20,0.97) 60%), rgba(28,24,20,0.97)',
-            border: '1px solid rgba(255, 141, 92, 0.2)',
-            borderRadius: 24,
-            padding: '26px 22px 22px',
-            boxShadow: '0 0 40px rgba(255,100,40,0.07)',
-            position: 'relative',
-            overflow: 'hidden',
+              'linear-gradient(90deg, transparent, rgba(255,141,92,0.4), transparent)',
           }}
+        />
+
+        <div
+          data-tauri-drag-region
+          style={{ textAlign: 'center', marginBottom: 12, cursor: 'grab' }}
         >
-          <div
+          <img
+            src={thukiLogo}
+            width={40}
+            height={40}
+            alt="Thuki"
             style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 1,
-              background:
-                'linear-gradient(90deg, transparent, rgba(255,141,92,0.4), transparent)',
+              objectFit: 'contain',
+              pointerEvents: 'none',
+              display: 'block',
+              margin: '0 auto',
             }}
           />
+        </div>
 
-          <div
-            data-tauri-drag-region
-            style={{ textAlign: 'center', marginBottom: 12, cursor: 'grab' }}
-          >
-            <img
-              src={thukiLogo}
-              width={40}
-              height={40}
-              alt="Thuki"
-              style={{
-                objectFit: 'contain',
-                pointerEvents: 'none',
-                display: 'block',
-                margin: '0 auto',
-              }}
-            />
-          </div>
+        <h1
+          style={{
+            textAlign: 'center',
+            fontSize: 18,
+            fontWeight: 700,
+            color: '#f0f0f2',
+            letterSpacing: '-0.3px',
+            lineHeight: 1.25,
+            margin: '0 0 4px',
+          }}
+        >
+          Set up your local AI
+        </h1>
+        <p
+          style={{
+            textAlign: 'center',
+            fontSize: 12.5,
+            color: 'rgba(255,255,255,0.55)',
+            lineHeight: 1.5,
+            margin: '0 auto 18px',
+            maxWidth: 560,
+          }}
+        >
+          Pick a starter model for Thuki. More models are available later in
+          Settings.
+        </p>
 
-          <h1
-            style={{
-              textAlign: 'center',
-              fontSize: 18,
-              fontWeight: 700,
-              color: '#f0f0f2',
-              letterSpacing: '-0.3px',
-              lineHeight: 1.25,
-              margin: '0 0 4px',
-            }}
-          >
-            Set up your local AI
-          </h1>
-          <p
-            style={{
-              textAlign: 'center',
-              fontSize: 12.5,
-              color: 'rgba(255,255,255,0.55)',
-              lineHeight: 1.5,
-              margin: '0 auto 18px',
-              maxWidth: 560,
-            }}
-          >
-            Pick a starter model for Thuki. More models are available later in
-            Settings.
-          </p>
+        {children}
 
-          {children}
-
-          <p
-            style={{
-              textAlign: 'center',
-              fontSize: 11,
-              color: 'rgba(255,255,255,0.18)',
-              marginTop: 12,
-              lineHeight: 1.5,
-            }}
-          >
-            Private by default · All inference runs on your machine
-          </p>
-        </motion.div>
-      </div>
-    );
-  }
+        <p
+          style={{
+            textAlign: 'center',
+            fontSize: 11,
+            color: 'rgba(255,255,255,0.18)',
+            marginTop: 12,
+            lineHeight: 1.5,
+          }}
+        >
+          Private by default · All inference runs on your machine
+        </p>
+      </motion.div>
+    </div>
+  );
+}
 
 // ─── Legacy Ollama flow (kept verbatim) ──────────────────────────────────────
 

@@ -14,6 +14,7 @@ import {
   $nodesOfType,
   KEY_ARROW_DOWN_COMMAND,
   KEY_ARROW_UP_COMMAND,
+  KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
   KEY_ESCAPE_COMMAND,
   KEY_TAB_COMMAND,
@@ -196,10 +197,17 @@ describe('BehaviorPlugin', () => {
       suggestionsOpen: boolean;
       keyHandlers: AskBarKeyHandlers;
       onPaste: (clipboard: DataTransfer | null) => boolean;
+      onBeforePaste: (editor: LexicalEditor) => Promise<void>;
     }> = {},
   ) {
     const keyHandlers = overrides.keyHandlers ?? makeKeyHandlers();
     const onPaste = overrides.onPaste ?? vi.fn(() => false);
+    // Keep `null` as null (the "no onBeforePaste" case) — `??` would
+    // substitute the default mock for null.
+    const onBeforePaste =
+      overrides.onBeforePaste === undefined
+        ? vi.fn(async () => {})
+        : overrides.onBeforePaste;
     let editor: LexicalEditor | null = null;
     const ui = (props: typeof overrides) => (
       <Composer onEditor={(e) => (editor = e)}>
@@ -207,6 +215,7 @@ describe('BehaviorPlugin', () => {
           suggestionsOpen={props.suggestionsOpen ?? false}
           keyHandlers={props.keyHandlers ?? keyHandlers}
           onPaste={props.onPaste ?? onPaste}
+          onBeforePaste={props.onBeforePaste ?? onBeforePaste}
         />
       </Composer>
     );
@@ -215,6 +224,7 @@ describe('BehaviorPlugin', () => {
       getEditor: () => editor as LexicalEditor,
       keyHandlers,
       onPaste,
+      onBeforePaste,
       rerender: (props: typeof overrides) => utils.rerender(ui(props)),
     };
   }
@@ -353,6 +363,80 @@ describe('BehaviorPlugin', () => {
     });
     expect(onPaste).toHaveBeenCalledWith(null);
     expect(handled).toBe(false);
+  });
+
+  it('intercepts Ctrl+V and hands the editor to onBeforePaste', () => {
+    const onBeforePaste = vi.fn(async () => {});
+    const h = renderBehavior({ onBeforePaste });
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+    let handled = false;
+    act(() => {
+      handled = h.getEditor().dispatchCommand(KEY_DOWN_COMMAND, {
+        ctrlKey: true,
+        key: 'v',
+        preventDefault,
+        stopPropagation,
+      } as unknown as KeyboardEvent);
+    });
+    expect(onBeforePaste).toHaveBeenCalledTimes(1);
+    expect(onBeforePaste).toHaveBeenCalledWith(h.getEditor());
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(stopPropagation).toHaveBeenCalledTimes(1);
+    expect(handled).toBe(true);
+  });
+
+  it('intercepts Cmd+V (metaKey) the same as Ctrl+V', () => {
+    const onBeforePaste = vi.fn(async () => {});
+    const h = renderBehavior({ onBeforePaste });
+    const preventDefault = vi.fn();
+    const stopPropagation = vi.fn();
+    let handled = false;
+    act(() => {
+      handled = h.getEditor().dispatchCommand(KEY_DOWN_COMMAND, {
+        metaKey: true,
+        key: 'v',
+        preventDefault,
+        stopPropagation,
+      } as unknown as KeyboardEvent);
+    });
+    expect(onBeforePaste).toHaveBeenCalledTimes(1);
+    expect(handled).toBe(true);
+  });
+
+  it('lets non-V keydowns fall through when onBeforePaste is provided', () => {
+    const onBeforePaste = vi.fn(async () => {});
+    const h = renderBehavior({ onBeforePaste });
+    const preventDefault = vi.fn();
+    act(() => {
+      // No ctrl/meta modifier: the paste guard short-circuits before the key
+      // check and nothing intercepts a bare 'k' keydown.
+      h.getEditor().dispatchCommand(KEY_DOWN_COMMAND, {
+        key: 'k',
+        preventDefault,
+        stopPropagation: vi.fn(),
+      } as unknown as KeyboardEvent);
+    });
+    expect(onBeforePaste).not.toHaveBeenCalled();
+    expect(preventDefault).not.toHaveBeenCalled();
+  });
+
+  it('does not intercept Ctrl+V when no onBeforePaste is provided', () => {
+    const h = renderBehavior({
+      onBeforePaste: null as unknown as (
+        editor: LexicalEditor,
+      ) => Promise<void>,
+    });
+    const preventDefault = vi.fn();
+    act(() => {
+      h.getEditor().dispatchCommand(KEY_DOWN_COMMAND, {
+        ctrlKey: true,
+        key: 'v',
+        preventDefault,
+        stopPropagation: vi.fn(),
+      } as unknown as KeyboardEvent);
+    });
+    expect(preventDefault).not.toHaveBeenCalled();
   });
 });
 

@@ -11654,4 +11654,407 @@ describe('App', () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  describe('/searchimage command', () => {
+    const HITS = [
+      {
+        title: 'Cat photo',
+        url: 'https://ex.com/cat',
+        img_src: 'https://ex.com/cat.jpg',
+        thumbnail_src: 'https://ex.com/cat-t.jpg',
+        source: 'unsplash',
+      },
+      {
+        title: 'Dog photo',
+        url: 'https://ex.com/dog',
+        img_src: 'https://ex.com/dog.jpg',
+        thumbnail_src: 'https://ex.com/dog-t.jpg',
+        source: 'unsplash',
+      },
+      {
+        title: 'Fox photo',
+        url: 'https://ex.com/fox',
+        img_src: 'https://ex.com/fox.jpg',
+        thumbnail_src: 'https://ex.com/fox-t.jpg',
+        source: 'pexels',
+      },
+    ];
+
+    it('routes /searchimage through search_images into ask_model with gallery hits', async () => {
+      enableChannelCaptureWithResponses({
+        search_images: { hits: HITS, stats: [] },
+      });
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = getAskInput();
+      act(() => {
+        setAskValue('/searchimage cats');
+      });
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith('search_images', { query: 'cats' });
+      expect(invoke).toHaveBeenCalledWith(
+        'ask_model',
+        expect.objectContaining({
+          message: expect.stringContaining('Images matching "cats"'),
+          slashCommand: '/searchimage',
+        }),
+      );
+      // uniqueSources dedupes the repeated 'unsplash' source into one chip.
+      expect(invoke).toHaveBeenCalledWith(
+        'ask_model',
+        expect.objectContaining({
+          message: expect.stringContaining('3 results from unsplash, pexels'),
+        }),
+      );
+      // The compose strip is cleared so the /searchimage trigger does not
+      // linger in the input.
+      expect(getAskInput().textContent).toBe('');
+    });
+
+    it('sends a no-results prompt when search_images returns zero hits', async () => {
+      enableChannelCaptureWithResponses({
+        search_images: { hits: [], stats: [] },
+      });
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = getAskInput();
+      act(() => {
+        setAskValue('/searchimage nothing here');
+      });
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith(
+        'ask_model',
+        expect.objectContaining({
+          message: 'No images found for your search query.',
+          slashCommand: null,
+        }),
+      );
+    });
+
+    it('falls back to a plain turn when search_images resolves empty', async () => {
+      // A malformed/missing response resolves `undefined`; dereferencing
+      // `result.hits` throws inside askSearchImage's try and the catch arm
+      // re-submits the display text as a normal turn.
+      enableChannelCaptureWithResponses({ search_images: undefined });
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = getAskInput();
+      act(() => {
+        setAskValue('/searchimage cats');
+      });
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+      await act(async () => {});
+      errorSpy.mockRestore();
+
+      expect(invoke).toHaveBeenCalledWith('search_images', { query: 'cats' });
+      expect(invoke).toHaveBeenCalledWith(
+        'ask_model',
+        expect.objectContaining({ message: '/searchimage cats' }),
+      );
+    });
+
+    it('ignores /searchimage with no query text after the trigger', async () => {
+      enableChannelCapture();
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = getAskInput();
+      act(() => {
+        setAskValue('/searchimage   ');
+      });
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+
+      expect(invoke).not.toHaveBeenCalledWith(
+        'search_images',
+        expect.anything(),
+      );
+      expect(invoke).not.toHaveBeenCalledWith(
+        'ask_model',
+        expect.objectContaining({ slashCommand: '/searchimage' }),
+      );
+    });
+
+    it('revokes staged image blob URLs when /searchimage runs with attachments', async () => {
+      enableChannelCaptureWithResponses({
+        save_image_command: '/tmp/staged/search-img.jpg',
+        search_images: { hits: HITS, stats: [] },
+      });
+      const revokeSpy = vi
+        .spyOn(URL, 'revokeObjectURL')
+        .mockImplementation(() => {});
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = getAskInput();
+      const file = new File(['fake-img-data'], 'photo.png', {
+        type: 'image/png',
+      });
+      await act(async () => {
+        fireEvent.paste(textarea, {
+          clipboardData: {
+            getData: () => '',
+            items: [{ type: 'image/png', getAsFile: () => file }],
+          },
+        });
+      });
+      await act(async () => {
+        await vi.waitFor(() => {
+          expect(invoke).toHaveBeenCalledWith(
+            'save_image_command',
+            expect.anything(),
+          );
+        });
+      });
+
+      act(() => {
+        setAskValue('/searchimage what is this');
+      });
+      await act(async () => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+      await act(async () => {});
+
+      // The submit loop releases the staged thumbnail's object URL.
+      expect(revokeSpy).toHaveBeenCalled();
+      // Compose strip cleared; attachments dropped before askSearchImage.
+      expect(getAskInput().textContent).toBe('');
+      revokeSpy.mockRestore();
+    });
+  });
+
+  describe('text drag-and-drop as quote', () => {
+    it('shows the violet ring when a text drag hovers the window', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const rootDiv = document.querySelector('.h-screen')!;
+      fireEvent.dragOver(rootDiv, {
+        preventDefault: vi.fn(),
+        dataTransfer: { types: ['text/plain'] },
+      });
+
+      const askBarWrapper = document.querySelector(
+        '[class*="flex flex-col w-full shrink-0"]',
+      )!;
+      expect(askBarWrapper.classList.contains('ring-2')).toBe(true);
+      expect(askBarWrapper.classList.contains('ring-red-500/60')).toBe(false);
+    });
+
+    it('accepts a text drop as a quote above the ask bar', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const rootDiv = document.querySelector('.h-screen')!;
+      fireEvent.drop(rootDiv, {
+        preventDefault: vi.fn(),
+        dataTransfer: {
+          getData: (type: string) =>
+            type === 'text/plain' ? 'dragged snippet' : '',
+          files: [],
+        },
+      });
+
+      expect(screen.getByText(/dragged snippet/)).toBeInTheDocument();
+    });
+
+    it('ignores a whitespace-only text drop (sanitizeContext strips it)', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const rootDiv = document.querySelector('.h-screen')!;
+      fireEvent.drop(rootDiv, {
+        preventDefault: vi.fn(),
+        dataTransfer: {
+          getData: () => '   ',
+          files: [],
+        },
+      });
+
+      expect(screen.queryByText('dragged snippet')).toBeNull();
+      // No quote block rendered above the ask bar.
+      expect(document.querySelector('.italic')).toBeNull();
+    });
+  });
+
+  describe('window height resize sync', () => {
+    let resizeCb:
+      | ((e: { payload: { width: number; height: number } }) => void)
+      | null;
+
+    beforeEach(() => {
+      resizeCb = null;
+      const impl = async (
+        cb: (e: { payload: { width: number; height: number } }) => void,
+      ) => {
+        resizeCb = cb;
+        return async () => {};
+      };
+      __mockWindow.onResized.mockImplementation(
+        impl as unknown as () => Promise<() => Promise<void>>,
+      );
+    });
+
+    afterEach(() => {
+      __mockWindow.onResized.mockImplementation(async () => async () => {});
+    });
+
+    function fireResize(height: number) {
+      act(() => {
+        resizeCb!({ payload: { width: 400, height } });
+      });
+    }
+
+    it('grows the morphing container to the new window height', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const container = document.querySelector(
+        '.morphing-container',
+      ) as HTMLElement;
+      // jsdom reports availHeight 0, so the container starts at the
+      // maxChatHeight fallback (648px) until a real resize lands.
+      expect(container.style.maxHeight).toBe('648px');
+
+      fireResize(520);
+      expect(container.style.maxHeight).toBe('520px');
+    });
+
+    it('ignores a resize to a non-positive height', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const container = document.querySelector(
+        '.morphing-container',
+      ) as HTMLElement;
+      const before = container.style.maxHeight;
+      fireResize(-5);
+      expect(container.style.maxHeight).toBe(before);
+    });
+
+    it('tolerates a resize after the overlay unmounts (node null)', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      act(() => emitTauriEvent('thuki://onboarding', { stage: 'permissions' }));
+      await act(async () => {});
+
+      expect(document.querySelector('.morphing-container')).toBeNull();
+      expect(() => fireResize(500)).not.toThrow();
+    });
+
+    it('caps the container at the availHeight when the screen reports it', async () => {
+      Object.defineProperty(window.screen, 'availHeight', {
+        configurable: true,
+        get: () => 800,
+      });
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const container = document.querySelector(
+        '.morphing-container',
+      ) as HTMLElement;
+      expect(container.style.maxHeight).toBe('800px');
+
+      delete (window.screen as { availHeight?: unknown }).availHeight;
+    });
+
+    it('skips height sync when the window API has no onResized', async () => {
+      const original = __mockWindow.onResized;
+      // test-only: simulate a Tauri webview whose Window lacks onResized so
+      // the effect early-returns before registering any listener.
+      __mockWindow.onResized = null as unknown as typeof original;
+      render(<App />);
+      await act(async () => {});
+      __mockWindow.onResized = original;
+      await showOverlay();
+
+      // The app still renders the normal overlay.
+      expect(document.querySelector('.morphing-container')).not.toBeNull();
+    });
+  });
+
+  describe('safe-mode recovery resolution', () => {
+    it('skips the fit estimate when no model is active', async () => {
+      enableChannelCaptureWithResponses({
+        startup_safety: { safe_mode: true, unclean_count: 0 },
+        get_model_picker_state: {
+          active: null,
+          all: [],
+          ollamaReachable: true,
+        },
+      });
+      render(<App />);
+      await act(async () => {});
+
+      expect(invoke).not.toHaveBeenCalledWith(
+        'estimate_model_fit',
+        expect.anything(),
+      );
+    });
+
+    it('falls through when the safe-mode fit estimate is missing', async () => {
+      enableChannelCaptureWithResponses({
+        startup_safety: { safe_mode: true, unclean_count: 0 },
+      });
+      render(<App />);
+      await act(async () => {});
+
+      // startup_safety reports safe mode and a model is active, but the
+      // estimate resolves `undefined` (unhandled command) so the recovery
+      // card stays hidden.
+      expect(invoke).toHaveBeenCalledWith('estimate_model_fit');
+      expect(screen.queryByRole('button', { name: 'Load anyway' })).toBeNull();
+    });
+
+    it('hides the recovery card when the fit estimate call fails', async () => {
+      invoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'estimate_model_fit') throw new Error('estimate failed');
+        if (cmd === 'startup_safety') {
+          return { safe_mode: true, unclean_count: 0 };
+        }
+        if (cmd === 'get_model_picker_state') {
+          return TEST_DEFAULT_MODEL_PICKER_STATE;
+        }
+        return undefined;
+      });
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      // The estimate rejection is swallowed by the resolution effect's catch
+      // (no installed/resolvable model to recover into) and the app renders
+      // the normal overlay.
+      expect(invoke).toHaveBeenCalledWith('estimate_model_fit');
+      expect(screen.queryByRole('button', { name: 'Load anyway' })).toBeNull();
+      expect(document.querySelector('.morphing-container')).not.toBeNull();
+    });
+  });
 });

@@ -325,6 +325,9 @@ async function nativeClipboardPaste(
         } else {
           $getRoot().getFirstDescendant()?.selectEnd();
           const sel = $getSelection();
+          /* v8 ignore next -- selectEnd() always installs a selection via
+             $internalMakeRangeSelection, so the double-fallback guard can
+             never observe a null here */
           if ($isRangeSelection(sel)) sel.insertText(text);
         }
       });
@@ -343,6 +346,8 @@ async function nativeClipboardPaste(
         for (const type of item.types) {
           if (type.startsWith('image/')) {
             const blob = await item.getType(type);
+            /* v8 ignore next -- type.startsWith('image/') guarantees a
+               non-null second segment, so the 'png' fallback is dead */
             const ext = type.split('/')[1] ?? 'png';
             const file = new File([blob], `pasted-${Date.now()}.${ext}`, {
               type,

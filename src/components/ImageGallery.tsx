@@ -32,13 +32,21 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
   }, []);
 
   const goNext = useCallback(() => {
-    setPreviewIndex((prev) =>
-      prev !== null ? Math.min(prev + 1, goodHits.length - 1) : null,
+    setPreviewIndex(
+      (prev) =>
+        /* v8 ignore start -- goNext only fires from the keydown listener and the next button, both rendered only while the preview is open, so prev is never null */
+        prev !== null ? Math.min(prev + 1, goodHits.length - 1) : null,
+      /* v8 ignore stop */
     );
   }, [goodHits.length]);
 
   const goPrev = useCallback(() => {
-    setPreviewIndex((prev) => (prev !== null ? Math.max(prev - 1, 0) : null));
+    setPreviewIndex(
+      (prev) =>
+        /* v8 ignore start -- goPrev only fires from the keydown listener and the prev button, both rendered only while the preview is open, so prev is never null */
+        prev !== null ? Math.max(prev - 1, 0) : null,
+      /* v8 ignore stop */
+    );
   }, []);
 
   useEffect(() => {
@@ -55,7 +63,9 @@ export function ImageGallery({ hits }: ImageGalleryProps) {
   const onWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     const el = trackRef.current;
+    /* v8 ignore start -- the wheel listener is only attached to trackRef.current, so el is always set here */
     if (!el) return;
+    /* v8 ignore stop */
     el.scrollBy({ left: e.deltaY, behavior: 'instant' });
   }, []);
 

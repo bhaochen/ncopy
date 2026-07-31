@@ -1042,4 +1042,178 @@ describe('useConversationHistory', () => {
     expect(loaded[0].modelName).toBeUndefined();
     expect(loaded[1].modelName).toBe('gemma4:e2b');
   });
+
+  it('loadConversation() maps image_search_hits to searchSources and imageSearchHits', async () => {
+    invoke.mockResolvedValueOnce([
+      {
+        id: 'u1',
+        role: 'user',
+        content: '/searchimage cats',
+        quoted_text: null,
+        image_paths: null,
+        thinking_content: null,
+        search_sources: null,
+        image_search_hits:
+          '[{"title":"Cat","url":"https://ex.com/cat","img_src":"https://ex.com/cat.jpg","thumbnail_src":"https://ex.com/cat-t.jpg","source":"unsplash"}]',
+        created_at: 1,
+      },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'Here are some cats.',
+        quoted_text: null,
+        image_paths: null,
+        thinking_content: null,
+        search_sources: null,
+        image_search_hits: '[]',
+        created_at: 2,
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversationHistory());
+    let loaded: Message[] = [];
+
+    await act(async () => {
+      loaded = await result.current.loadConversation('conv-imgsearch');
+    });
+
+    // No search_sources, so hits fall back into searchSources (attribution
+    // comes from the hit source) and fromSearch is flagged.
+    expect(loaded[0].fromSearch).toBe(true);
+    expect(loaded[0].searchSources).toEqual([
+      { title: 'Cat', url: 'https://ex.com/cat', attribution: 'unsplash' },
+    ]);
+    expect(loaded[0].imageSearchHits).toEqual([
+      {
+        title: 'Cat',
+        url: 'https://ex.com/cat',
+        img_src: 'https://ex.com/cat.jpg',
+        thumbnail_src: 'https://ex.com/cat-t.jpg',
+        source: 'unsplash',
+      },
+    ]);
+    // Empty hits array restores nothing.
+    expect(loaded[1].searchSources).toBeUndefined();
+    expect(loaded[1].imageSearchHits).toBeUndefined();
+    expect(loaded[1].fromSearch).toBeUndefined();
+  });
+
+  it('loadConversation() keeps searchSources over image_search_hits when both present', async () => {
+    invoke.mockResolvedValueOnce([
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'Both present.',
+        quoted_text: null,
+        image_paths: null,
+        thinking_content: null,
+        search_sources: '[{"title":"Search hit","url":"https://ex.com/s"}]',
+        image_search_hits:
+          '[{"title":"Image hit","url":"https://ex.com/i","img_src":"https://ex.com/i.jpg","thumbnail_src":"https://ex.com/i-t.jpg","source":"unsplash"}]',
+        created_at: 1,
+      },
+    ]);
+
+    const { result } = renderHook(() => useConversationHistory());
+    let loaded: Message[] = [];
+
+    await act(async () => {
+      loaded = await result.current.loadConversation('conv-both');
+    });
+
+    expect(loaded[0].searchSources).toEqual([
+      { title: 'Search hit', url: 'https://ex.com/s' },
+    ]);
+    expect(loaded[0].imageSearchHits).toEqual([
+      {
+        title: 'Image hit',
+        url: 'https://ex.com/i',
+        img_src: 'https://ex.com/i.jpg',
+        thumbnail_src: 'https://ex.com/i-t.jpg',
+        source: 'unsplash',
+      },
+    ]);
+  });
+
+  it('save() stamps image_search_hits on payloads when Message has imageSearchHits', async () => {
+    invoke.mockResolvedValueOnce({ conversation_id: 'conv-hits' });
+    invoke.mockResolvedValue(undefined);
+
+    const messages: Message[] = [
+      { id: 'u1', role: 'user', content: '/searchimage cats' },
+      {
+        id: 'a1',
+        role: 'assistant',
+        content: 'Here are some cats.',
+        imageSearchHits: [
+          {
+            title: 'Cat',
+            url: 'https://ex.com/cat',
+            img_src: 'https://ex.com/cat.jpg',
+            thumbnail_src: 'https://ex.com/cat-t.jpg',
+            source: 'unsplash',
+          },
+        ],
+      },
+    ];
+
+    const { result } = renderHook(() => useConversationHistory());
+
+    await act(async () => {
+      await result.current.save(messages, MODEL);
+    });
+
+    expect(invoke).toHaveBeenCalledWith(
+      'save_conversation',
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({ role: 'user', image_search_hits: null }),
+          expect.objectContaining({
+            role: 'assistant',
+            image_search_hits: [expect.objectContaining({ title: 'Cat' })],
+          }),
+        ],
+      }),
+    );
+  });
+
+  it('persistTurn() sends imageSearchHits for assistant messages', async () => {
+    invoke.mockResolvedValueOnce({ conversation_id: 'conv-hits-persist' });
+    invoke.mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useConversationHistory());
+
+    await act(async () => {
+      await result.current.save(MESSAGES, MODEL);
+    });
+    invoke.mockClear();
+
+    const userMsg: Message = { id: 'u-h', role: 'user', content: 'q' };
+    const assistantMsg: Message = {
+      id: 'a-h',
+      role: 'assistant',
+      content: 'answer',
+      imageSearchHits: [
+        {
+          title: 'Dog',
+          url: 'https://ex.com/dog',
+          img_src: 'https://ex.com/dog.jpg',
+          thumbnail_src: 'https://ex.com/dog-t.jpg',
+          source: 'unsplash',
+        },
+      ],
+    };
+
+    await act(async () => {
+      await result.current.persistTurn(userMsg, assistantMsg);
+    });
+
+    expect(invoke).toHaveBeenCalledWith(
+      'persist_message',
+      expect.objectContaining({
+        role: 'assistant',
+        imageSearchHits: [expect.objectContaining({ title: 'Dog' })],
+      }),
+    );
+  });
 });

@@ -11,15 +11,27 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  KEY_DOWN_COMMAND,
   type LexicalEditor,
 } from 'lexical';
 import { AskBarView } from '../AskBarView';
 import type { AttachedImage } from '../../types/image';
+import { MAX_IMAGE_SIZE_BYTES } from '../../types/image';
 import {
   ConfigProviderForTest,
   DEFAULT_CONFIG,
 } from '../../contexts/ConfigContext';
 import { invoke } from '../../testUtils/mocks/tauri';
+
+const { readImageMock, readTextMock } = vi.hoisted(() => ({
+  readImageMock: vi.fn(),
+  readTextMock: vi.fn(),
+}));
+
+vi.mock('@tauri-apps/plugin-clipboard-manager', () => ({
+  readImage: readImageMock,
+  readText: readTextMock,
+}));
 
 function makeRef(): React.RefObject<HTMLDivElement | null> {
   return { current: null };
@@ -1811,6 +1823,47 @@ describe('AskBarView', () => {
       fireEvent.keyDown(textarea, { key: 'Tab' });
       expect(setQuery).not.toHaveBeenCalled();
     });
+
+    describe('used-command word boundaries', () => {
+      it('treats a mid-text command preceded by a space as used', () => {
+        renderWithQuery('hello /search /sc');
+        // "/search" appears before the active "/sc" prefix, so it is excluded
+        // from the suggestions even though it shares the "/se" stem.
+        const options = screen.getAllByRole('option');
+        expect(options).toHaveLength(1);
+        expect(options[0].textContent).toContain('/screen');
+      });
+
+      it('does not treat a command embedded mid-word as used', () => {
+        renderWithQuery('hello/search /sea');
+        // "hello/search" is not a real command usage (no space before the
+        // trigger), so /search stays eligible and both /search + /searchimage
+        // show under the "/sea" prefix.
+        const options = screen.getAllByRole('option');
+        expect(options).toHaveLength(2);
+        expect(options[0].textContent).toContain('/search');
+        expect(options[1].textContent).toContain('/searchimage');
+      });
+
+      it('treats a trigger glued to following text as unused at position 0', () => {
+        renderWithQuery('/searchx /sea');
+        // "/search" sits at index 0 but is followed by "x", so the after-bound
+        // check fails and the trigger is not counted as used.
+        const options = screen.getAllByRole('option');
+        expect(options).toHaveLength(2);
+        expect(options[0].textContent).toContain('/search');
+        expect(options[1].textContent).toContain('/searchimage');
+      });
+
+      it('treats a command followed by a space in mid-text as used', () => {
+        renderWithQuery('hello /search cats /sea');
+        // "/search" is a complete word in the middle of the text; it must be
+        // excluded from the "/sea" suggestions.
+        const options = screen.getAllByRole('option');
+        expect(options).toHaveLength(1);
+        expect(options[0].textContent).toContain('/searchimage');
+      });
+    });
   });
 
   describe('capability gate UI', () => {
@@ -1882,6 +1935,56 @@ describe('AskBarView', () => {
         />,
       );
       expect(screen.getByTestId('ask-bar-row')).toBeInTheDocument();
+    });
+  });
+
+  describe('auto-prime-skipped strip', () => {
+    const skippedProps = {
+      modelName: 'Qwen3.5 9B',
+      requiredBytes: 5 * 1024 ** 3,
+      availableBytes: 2 * 1024 ** 3,
+      ceilingFraction: 0.8,
+      canRemember: true,
+      onSwitchModel: vi.fn(),
+      onLoadAnyway: vi.fn(),
+    };
+
+    it('renders the strip in ask-bar mode when autoPrimeSkipped is provided', () => {
+      render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query=""
+          setQuery={vi.fn()}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+          autoPrimeSkipped={skippedProps}
+        />,
+      );
+      expect(
+        screen.getByTestId('auto-prime-skipped-strip'),
+      ).toBeInTheDocument();
+    });
+
+    it('hides the strip in chat mode even when autoPrimeSkipped is provided', () => {
+      // Once a real chat turn starts, the per-message InsufficientMemory error
+      // card takes over as the surface for the same refusal.
+      render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query=""
+          setQuery={vi.fn()}
+          isChatMode={true}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+          autoPrimeSkipped={skippedProps}
+        />,
+      );
+      expect(screen.queryByTestId('auto-prime-skipped-strip')).toBeNull();
     });
   });
 
@@ -2122,6 +2225,310 @@ describe('AskBarView', () => {
       expect(
         screen.getByRole('button', { name: 'Send message' }),
       ).not.toBeDisabled();
+    });
+  });
+
+  describe('native clipboard paste (Ctrl+V)', () => {
+    let blob: Blob | null = null;
+    const putImageData = vi.fn();
+
+    beforeEach(() => {
+      readImageMock.mockReset();
+      readTextMock.mockReset();
+      // Stub the offscreen canvas used by rgbaToPngFile: a fake 2D context plus
+      // a toBlob that hands back the per-test blob.
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+        createImageData: (w: number, h: number) => ({
+          data: new Uint8ClampedArray(w * h * 4),
+        }),
+        putImageData,
+      } as unknown as CanvasRenderingContext2D);
+      vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(
+        (cb: BlobCallback) => {
+          cb(blob);
+        },
+      );
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      // setup.ts defines navigator.clipboard (non-configurable), so only the
+      // per-test `read` stub is removed here.
+      delete (navigator.clipboard as { read?: unknown }).read;
+    });
+
+    function renderBar() {
+      const onImagesAttached = vi.fn<(files: File[]) => void>();
+      const setQuery = vi.fn<React.Dispatch<React.SetStateAction<string>>>();
+      render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          onImagesAttached={onImagesAttached}
+          query=""
+          setQuery={setQuery}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+        />,
+      );
+      return { onImagesAttached, setQuery };
+    }
+
+    /** Simulates pressing Ctrl+V, which Lexical routes to nativeClipboardPaste. */
+    function fireCtrlV() {
+      act(() => {
+        getEditor().dispatchCommand(KEY_DOWN_COMMAND, {
+          ctrlKey: true,
+          key: 'v',
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+        } as unknown as KeyboardEvent);
+      });
+    }
+
+    /** Stubs navigator.clipboard.read (setup.ts defines the clipboard object
+     *  as non-configurable, so we add the `read` method onto it) and returns
+     *  the mock for awaiting. */
+    function mockClipboardRead(
+      items: Array<{ types: string[]; getType: (t: string) => Promise<Blob> }>,
+    ) {
+      const read = vi.fn(async () => items);
+      Object.defineProperty(navigator.clipboard, 'read', {
+        configurable: true,
+        writable: true,
+        value: read,
+      });
+      return read;
+    }
+
+    it('attaches a PNG file when the native clipboard holds an image', async () => {
+      readImageMock.mockResolvedValue({
+        size: async () => ({ width: 2, height: 2 }),
+        rgba: async () => new Uint8Array(16),
+      });
+      blob = new Blob([new Uint8Array(16)], { type: 'image/png' });
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(onImagesAttached).toHaveBeenCalledTimes(1));
+      const [files] = onImagesAttached.mock.calls[0] as [File[]];
+      expect(files[0].type).toBe('image/png');
+      expect(readTextMock).not.toHaveBeenCalled();
+    });
+
+    it('falls back to text when the native image exceeds the size cap', async () => {
+      readImageMock.mockResolvedValue({
+        size: async () => ({ width: 2, height: 2 }),
+        rgba: async () => new Uint8Array(16),
+      });
+      blob = new Blob([new Uint8Array(MAX_IMAGE_SIZE_BYTES + 1)]);
+      readTextMock.mockResolvedValue('pasted fallback text');
+
+      const { onImagesAttached, setQuery } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() =>
+        expect(setQuery).toHaveBeenCalledWith('pasted fallback text'),
+      );
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('skips a zero-width native image and falls through', async () => {
+      readImageMock.mockResolvedValue({
+        size: async () => ({ width: 0, height: 0 }),
+        rgba: async () => new Uint8Array(16),
+      });
+      readTextMock.mockResolvedValue(null);
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(readTextMock).toHaveBeenCalled());
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('skips a zero-height native image and falls through', async () => {
+      readImageMock.mockResolvedValue({
+        size: async () => ({ width: 2, height: 0 }),
+        rgba: async () => new Uint8Array(16),
+      });
+      readTextMock.mockResolvedValue(null);
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(readTextMock).toHaveBeenCalled());
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('skips a native image with no pixel data and falls through', async () => {
+      readImageMock.mockResolvedValue({
+        size: async () => ({ width: 2, height: 2 }),
+        rgba: async () => new Uint8Array(0),
+      });
+      readTextMock.mockResolvedValue(null);
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(readTextMock).toHaveBeenCalled());
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('uses the native text clipboard when no image is present', async () => {
+      readImageMock.mockResolvedValue(null);
+      readTextMock.mockResolvedValue('hello from clipboard');
+
+      const { onImagesAttached, setQuery } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() =>
+        expect(setQuery).toHaveBeenCalledWith('hello from clipboard'),
+      );
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('recovers from a failing native image read via the text clipboard', async () => {
+      readImageMock.mockRejectedValue(new Error('clipboard plugin missing'));
+      readTextMock.mockResolvedValue('recovered text');
+
+      const { onImagesAttached, setQuery } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() =>
+        expect(setQuery).toHaveBeenCalledWith('recovered text'),
+      );
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('inserts text at the end when the editor has no active selection', async () => {
+      readImageMock.mockRejectedValue(new Error('clipboard plugin missing'));
+      readTextMock.mockResolvedValue('no-selection paste');
+
+      const { onImagesAttached, setQuery } = renderBar();
+      // Stub getSelection() to return null so Lexical's $internalCreateSelection
+      // can never re-derive a selection from the DOM during the async paste
+      // pipeline. $getSelection() then returns null inside the insert update and
+      // the readText fallback takes the selectEnd() branch.
+      const originalGetSelection = window.getSelection;
+      window.getSelection = () => null;
+      try {
+        fireCtrlV();
+        await Promise.resolve();
+        await Promise.resolve();
+      } finally {
+        window.getSelection = originalGetSelection;
+      }
+
+      await waitFor(() =>
+        expect(setQuery).toHaveBeenCalledWith('no-selection paste'),
+      );
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('ignores an empty native text clipboard', async () => {
+      readImageMock.mockRejectedValue(new Error('clipboard plugin missing'));
+      readTextMock.mockResolvedValue('');
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(readTextMock).toHaveBeenCalled());
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('swallows a failing native text read', async () => {
+      readImageMock.mockRejectedValue(new Error('clipboard plugin missing'));
+      readTextMock.mockRejectedValue(new Error('text read failed'));
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(readTextMock).toHaveBeenCalled());
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the DOM clipboard API for images', async () => {
+      const small = new Blob([new Uint8Array(8)], { type: 'image/png' });
+      const read = mockClipboardRead([
+        { types: ['image/png'], getType: async () => small },
+      ]);
+      readImageMock.mockRejectedValue(new Error('plugin missing'));
+      readTextMock.mockResolvedValue('');
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(read).toHaveBeenCalled());
+      expect(onImagesAttached).toHaveBeenCalledTimes(1);
+      const [files] = onImagesAttached.mock.calls[0] as [File[]];
+      expect(files[0].type).toBe('image/png');
+    });
+
+    it('skips DOM clipboard images over the size cap', async () => {
+      const huge = new Blob([new Uint8Array(MAX_IMAGE_SIZE_BYTES + 1)], {
+        type: 'image/png',
+      });
+      const read = mockClipboardRead([
+        { types: ['image/png'], getType: async () => huge },
+      ]);
+      readImageMock.mockRejectedValue(new Error('plugin missing'));
+      readTextMock.mockResolvedValue('');
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(read).toHaveBeenCalled());
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('ignores non-image DOM clipboard entries', async () => {
+      const read = mockClipboardRead([
+        { types: [], getType: vi.fn() },
+        { types: ['text/plain'], getType: vi.fn() },
+      ]);
+      readImageMock.mockRejectedValue(new Error('plugin missing'));
+      readTextMock.mockResolvedValue('');
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(read).toHaveBeenCalled());
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('ignores an empty DOM clipboard item list', async () => {
+      const read = mockClipboardRead([]);
+      readImageMock.mockRejectedValue(new Error('plugin missing'));
+      readTextMock.mockResolvedValue('');
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(read).toHaveBeenCalled());
+      expect(onImagesAttached).not.toHaveBeenCalled();
+    });
+
+    it('swallows a failing DOM clipboard read', async () => {
+      const read = vi.fn(async () => {
+        throw new Error('permission denied');
+      });
+      Object.defineProperty(navigator.clipboard, 'read', {
+        configurable: true,
+        writable: true,
+        value: read,
+      });
+      readImageMock.mockRejectedValue(new Error('plugin missing'));
+      readTextMock.mockResolvedValue('');
+
+      const { onImagesAttached } = renderBar();
+      fireCtrlV();
+
+      await waitFor(() => expect(read).toHaveBeenCalled());
+      expect(onImagesAttached).not.toHaveBeenCalled();
     });
   });
 });

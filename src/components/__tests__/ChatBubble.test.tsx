@@ -227,6 +227,45 @@ describe('ChatBubble', () => {
       const outerDiv = container.firstElementChild;
       expect(outerDiv?.classList.contains('justify-start')).toBe(true);
     });
+
+    it('renders an ImageGallery above the answer when imageSearchHits is non-empty', () => {
+      render(
+        <ChatBubble
+          role="assistant"
+          content="Here are the cats."
+          index={0}
+          imageSearchHits={[
+            {
+              title: 'Cat on a fence',
+              url: 'https://ex.com/cat',
+              img_src: 'https://ex.com/cat.jpg',
+              thumbnail_src: 'https://ex.com/cat-t.jpg',
+              source: 'unsplash',
+            },
+          ]}
+        />,
+      );
+      // ImageGallery renders one thumbnail button per hit, labeled by title.
+      expect(
+        screen.getByRole('button', { name: 'Cat on a fence' }),
+      ).toBeInTheDocument();
+      // The markdown answer still renders below the gallery.
+      expect(screen.getByText('Here are the cats.')).toBeInTheDocument();
+    });
+
+    it('skips the ImageGallery when imageSearchHits is an empty array', () => {
+      render(
+        <ChatBubble
+          role="assistant"
+          content="plain answer"
+          index={0}
+          imageSearchHits={[]}
+        />,
+      );
+      expect(
+        screen.queryByRole('button', { name: 'Cat on a fence' }),
+      ).toBeNull();
+    });
   });
 
   describe('Quoted text', () => {
