@@ -142,7 +142,14 @@ mod _settings_panel {
         panel!(ThukiSettingsPanel {
             config: {
                 can_become_key_window: true,
-                is_floating_panel: true
+                is_floating_panel: true,
+                // NSPanel's `hidesOnDeactivate` defaults to true; without an
+                // explicit false the panel vanishes the moment the app loses
+                // activation (e.g. clicking the ask-bar overlay's titlebar
+                // while Settings is open steals key and hides it). Settings is
+                // a nonactivating panel that must stay put until the user
+                // closes it, so pin the flag off.
+                hides_on_deactivate: false
             }
             with: {
                 // Same hover-activate rationale as ThukiPanel. Settings is a
@@ -206,7 +213,12 @@ mod _update_panel {
         panel!(ThukiUpdatePanel {
             config: {
                 can_become_key_window: true,
-                is_floating_panel: true
+                is_floating_panel: true,
+                // Same trap as ThukiSettingsPanel: `hidesOnDeactivate` defaults
+                // to true, so without an explicit false the panel hides on any
+                // app deactivation. "What's New" is nonactivating and must stay
+                // until the user dismisses it.
+                hides_on_deactivate: false
             }
             with: {
                 // Same hover-activate rationale as ThukiPanel. The update panel
