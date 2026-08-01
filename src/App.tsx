@@ -56,6 +56,8 @@ import { SafeModeRecoveryCard } from './components/SafeModeRecoveryCard';
 import { ImagePreviewModal } from './components/ImagePreviewModal';
 import { TipBar } from './components/TipBar';
 import { UpdateFooterBar } from './components/UpdateFooterBar';
+import { MascotStage } from './components/MascotStage';
+import type { MascotStageState } from './components/MascotStage';
 import { useTips } from './hooks/useTips';
 import { useUpdater } from './hooks/useUpdater';
 import type { AttachedImage } from './types/image';
@@ -1073,6 +1075,23 @@ function App() {
   const [growsUpward, setGrowsUpward] = useState(false);
 
   /**
+   * True while the ask-bar input holds focus. Drives the mascot's "listening"
+   * animation. Reported by AskBarView's focusin/focusout delegation.
+   */
+  const [isListening, setIsListening] = useState(false);
+
+  /**
+   * Active mascot stage. `thinking` outranks `listening` outranks `idle`: a
+   * streamed response (with or without the input focused) is the most salient
+   * state, then a focused/composing input, then the resting pose.
+   */
+  const mascotStageState: MascotStageState = isGenerating
+    ? 'thinking'
+    : isListening
+      ? 'listening'
+      : 'idle';
+
+  /**
    * Determines whether the UI has entered "chat mode" - i.e., the morphing
    * chat window state with message bubbles. Transitions from input-bar mode
    * to chat-window mode are animated via Framer Motion `layout` prop.
@@ -1562,6 +1581,9 @@ function App() {
       setPendingUserMessage(null);
       setCaptureError(null);
       stickyReplaceCommandRef.current = null;
+      // A fresh show starts from the resting mascot pose; focus (and the
+      // "listening" animation) is re-reported by the autofocused input.
+      setIsListening(false);
 
       void refreshModels();
       reset();
@@ -1589,6 +1611,7 @@ function App() {
       for (const img of prev) URL.revokeObjectURL(img.blobUrl);
       return [];
     });
+    setIsListening(false);
     setOverlayState((currentState) => {
       if (currentState === 'hidden' || currentState === 'hiding') {
         return currentState;
@@ -4431,6 +4454,11 @@ function App() {
                           }}
                           className="morphing-container relative flex flex-col overflow-hidden"
                         >
+                          {/* Mascot video stage - 512x512 lifecycle animation
+                    (idle / listening / thinking). Always visible at the top
+                    of the overlay so the mascot is the face of the app in
+                    both ask-bar and chat modes. */}
+                          <MascotStage state={mascotStageState} />
                           {/* Chat Messages Area - morphs in when in chat mode. */}
                           <AnimatePresence>
                             {isChatMode ? (
@@ -4620,6 +4648,7 @@ function App() {
                             onFirstKeystroke={() =>
                               void invoke('warm_up_model')
                             }
+                            onListeningChange={setIsListening}
                           />
                         </div>
 

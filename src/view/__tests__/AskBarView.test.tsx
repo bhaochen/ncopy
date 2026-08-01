@@ -185,6 +185,55 @@ describe('AskBarView', () => {
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
 
+  it('reports listening while the input holds focus and idle when it loses it', () => {
+    const onListeningChange = vi.fn();
+    render(
+      <AskBarView
+        {...IMAGE_DEFAULTS}
+        query=""
+        setQuery={vi.fn()}
+        isChatMode={false}
+        isGenerating={false}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        inputRef={makeRef()}
+        onListeningChange={onListeningChange}
+      />,
+    );
+    const input = getInput();
+    // Autofocus from Lexical's AutoFocusPlugin is scheduled asynchronously, so
+    // the test drives focus transitions explicitly instead of relying on it.
+    fireEvent.focusIn(input);
+    expect(onListeningChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.focusOut(input);
+    expect(onListeningChange).toHaveBeenLastCalledWith(false);
+
+    fireEvent.focusIn(input);
+    expect(onListeningChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('focus changes are safe when onListeningChange is omitted', () => {
+    render(
+      <AskBarView
+        {...IMAGE_DEFAULTS}
+        query=""
+        setQuery={vi.fn()}
+        isChatMode={false}
+        isGenerating={false}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        inputRef={makeRef()}
+      />,
+    );
+    const input = getInput();
+    // Firing focus transitions without the callback wired up must not throw.
+    expect(() => {
+      fireEvent.focusOut(input);
+      fireEvent.focusIn(input);
+    }).not.toThrow();
+  });
+
   it('keeps the send button disabled while a download is pausing', () => {
     render(
       <AskBarView

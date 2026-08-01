@@ -12057,4 +12057,67 @@ describe('App', () => {
       expect(document.querySelector('.morphing-container')).not.toBeNull();
     });
   });
+
+  describe('mascot stage', () => {
+    it('plays listening while the ask bar is focused and idle when it is not', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      const input = getAskInput();
+
+      // The Lexical AutoFocusPlugin focuses the input when the overlay
+      // appears, so the mascot reports the bar as active ("listening").
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is listening');
+
+      fireEvent.focusOut(input);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+
+      fireEvent.focusIn(input);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is listening');
+    });
+
+    it('plays thinking while a response streams, outranking listening', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      const input = getAskInput();
+
+      act(() => {
+        setAskValue('hello');
+      });
+      act(() => {
+        fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+      });
+      await act(async () => {});
+
+      act(() => {
+        getLastChannel()?.simulateMessage({ type: 'Token', data: 'hi' });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is thinking');
+
+      // Blurring the input mid-stream must not drop the mascot back to
+      // idle: the running state outranks listening.
+      fireEvent.focusOut(input);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is thinking');
+
+      fireEvent.focusIn(input);
+      await act(async () => {});
+
+      act(() => {
+        getLastChannel()?.simulateMessage({ type: 'Done' });
+      });
+      await act(async () => {});
+
+      // Stream finished and the input still holds focus → back to listening.
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is listening');
+    });
+  });
 });

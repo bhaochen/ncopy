@@ -254,6 +254,12 @@ interface AskBarViewProps {
    * submits their first message.
    */
   onFirstKeystroke?: () => void;
+  /**
+   * Reports whether the ask-bar input currently holds focus. The host uses
+   * this to drive the mascot's "listening" animation: `true` while the user
+   * is composing (the bar is "activated"), `false` once focus leaves.
+   */
+  onListeningChange?: (listening: boolean) => void;
 }
 
 /**
@@ -402,6 +408,7 @@ export function AskBarView({
   shake = false,
   maxImages,
   onFirstKeystroke,
+  onListeningChange,
 }: AskBarViewProps) {
   /** Quote limits + behavior flags from managed AppConfig. */
   const { quote, behavior } = useConfig();
@@ -809,8 +816,14 @@ export function AskBarView({
 
           {/* Lexical-backed input. A single contentEditable means the caret is
               native and never drifts; command triggers highlight inline via a
-              text-entity node. The host stays the source of truth for `query`. */}
-          <div className="relative flex-1 min-w-0">
+              text-entity node. The host stays the source of truth for `query`.
+              Focus is reported via React's focusin/focusout delegation so the
+              host can drive the mascot's "listening" animation. */}
+          <div
+            className="relative flex-1 min-w-0"
+            onFocus={() => onListeningChange?.(true)}
+            onBlur={() => onListeningChange?.(false)}
+          >
             {/* The compose surface stays editable while a response streams or
                 a submit is pending, so the user can draft their next message
                 without waiting. Sending is gated at submit time (handleSubmit

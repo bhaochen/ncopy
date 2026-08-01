@@ -1020,3 +1020,56 @@ body {
     left: 0;
   }
 }
+
+/* ─── Mascot video stage ───
+ * 512x512 video area that plays the mascot's lifecycle animation. All three
+ * panels stay mounted and fade via opacity, so a state switch is a crossfade
+ * (`.mascot-stage-video-active`), never a reload flash. Each panel holds a
+ * `SeamlessLoopVideo` whose own primary/standby handover replaces the
+ * browser's native `loop` re-seek (which flashes one frame at the loop
+ * point). The stage itself is a hidden video area: the window never has room
+ * for a full 512px stage in the compact ask-bar state, so the stage renders
+ * only while the overlay is expanded (chat mode) where the default 600px-wide
+ * window fits it cleanly. */
+.mascot-stage {
+  position: relative;
+  width: 512px;
+  height: 512px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 24px;
+}
+.mascot-stage-video {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.mascot-stage-video-active {
+  opacity: 1;
+}
+/* Two stacked videos per state. The active one sits on top and plays; the
+   parked one sits underneath, always fully opaque, parked on the first frame
+   so its handover frame stays decoded AND composited — it can never lose its
+   picture. The swap is a pure z-index flip, so the boundary is a direct
+   last-frame → first-frame cut with no engine re-seek. z-index:0 on the
+   wrapper keeps the pair's stacking local to one panel. */
+.seamless-loop-video {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.seamless-loop-video video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 1;
+}
+.seamless-loop-video video.seamless-loop-video-active {
+  z-index: 2;
+}
+.seamless-loop-video video:not(.seamless-loop-video-active) {
+  z-index: 1;
+}
