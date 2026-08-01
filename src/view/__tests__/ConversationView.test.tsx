@@ -9,13 +9,7 @@ describe('ConversationView', () => {
       { id: '1', role: 'user' as const, content: 'Hello there' },
       { id: '2', role: 'assistant' as const, content: 'Hi!' },
     ];
-    render(
-      <ConversationView
-        messages={messages}
-        isGenerating={false}
-        onClose={vi.fn()}
-      />,
-    );
+    render(<ConversationView messages={messages} isGenerating={false} />);
     expect(screen.getByText('Hello there')).toBeInTheDocument();
     expect(screen.getByText('Hi!')).toBeInTheDocument();
   });
@@ -31,7 +25,6 @@ describe('ConversationView', () => {
           },
         ]}
         isGenerating={true}
-        onClose={vi.fn()}
       />,
     );
     // Streamdown splits streaming text into per-word animated spans,
@@ -45,7 +38,6 @@ describe('ConversationView', () => {
       <ConversationView
         messages={[{ id: '1', role: 'assistant' as const, content: '' }]}
         isGenerating={true}
-        onClose={vi.fn()}
       />,
     );
     // Unified strip: Y1 three-dot motion host
@@ -61,7 +53,6 @@ describe('ConversationView', () => {
           { id: '1', role: 'assistant' as const, content: 'some token' },
         ]}
         isGenerating={true}
-        onClose={vi.fn()}
       />,
     );
     expect(
@@ -69,19 +60,9 @@ describe('ConversationView', () => {
     ).toHaveLength(0);
   });
 
-  it('renders WindowControls with onClose', () => {
-    const onClose = vi.fn();
-    render(
-      <ConversationView messages={[]} isGenerating={false} onClose={onClose} />,
-    );
-    expect(
-      screen.getByRole('button', { name: 'Close window' }),
-    ).toBeInTheDocument();
-  });
-
   it('renders empty state with no messages (no .chat-bubble elements)', () => {
     const { container } = render(
-      <ConversationView messages={[]} isGenerating={false} onClose={vi.fn()} />,
+      <ConversationView messages={[]} isGenerating={false} />,
     );
     expect(container.querySelectorAll('.chat-bubble')).toHaveLength(0);
   });
@@ -91,7 +72,6 @@ describe('ConversationView', () => {
       <ConversationView
         messages={[{ id: '1', role: 'user' as const, content: 'first' }]}
         isGenerating={false}
-        onClose={vi.fn()}
       />,
     );
 
@@ -123,7 +103,6 @@ describe('ConversationView', () => {
             { id: '2', role: 'assistant' as const, content: 'new token' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
         />,
       );
     });
@@ -137,7 +116,6 @@ describe('ConversationView', () => {
       <ConversationView
         messages={[{ id: '1', role: 'user' as const, content: 'first' }]}
         isGenerating={false}
-        onClose={vi.fn()}
       />,
     );
 
@@ -167,7 +145,6 @@ describe('ConversationView', () => {
             { id: '2', role: 'user' as const, content: 'second question' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
         />,
       );
     });
@@ -185,7 +162,6 @@ describe('ConversationView', () => {
           { id: '2', role: 'assistant' as const, content: 'streaming reply' },
         ]}
         isGenerating={true}
-        onClose={vi.fn()}
       />,
     );
 
@@ -218,7 +194,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={false}
-          onClose={vi.fn()}
         />,
       );
     });
@@ -233,7 +208,6 @@ describe('ConversationView', () => {
       <ConversationView
         messages={[{ id: '1', role: 'user' as const, content: 'first' }]}
         isGenerating={false}
-        onClose={vi.fn()}
       />,
     );
 
@@ -283,7 +257,6 @@ describe('ConversationView', () => {
             { id: '2', role: 'assistant' as const, content: 'new tokens' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
         />,
       );
     });
@@ -296,7 +269,6 @@ describe('ConversationView', () => {
       <ConversationView
         messages={[{ id: '1', role: 'user' as const, content: 'first' }]}
         isGenerating={false}
-        onClose={vi.fn()}
       />,
     );
 
@@ -345,7 +317,6 @@ describe('ConversationView', () => {
             { id: '2', role: 'assistant' as const, content: 'new tokens' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
         />,
       );
     });
@@ -359,7 +330,6 @@ describe('ConversationView', () => {
       <ConversationView
         messages={[{ id: '1', role: 'user' as const, content: 'first' }]}
         isGenerating={false}
-        onClose={vi.fn()}
       />,
     );
 
@@ -389,114 +359,12 @@ describe('ConversationView', () => {
             { id: '2', role: 'assistant' as const, content: 'tokens' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
         />,
       );
     });
   });
 
   describe('header controls', () => {
-    it('renders History button when onHistoryOpen is provided', () => {
-      render(
-        <ConversationView
-          messages={[]}
-          isGenerating={false}
-          onClose={vi.fn()}
-          onHistoryOpen={vi.fn()}
-        />,
-      );
-      expect(
-        screen.getByRole('button', { name: /history/i }),
-      ).toBeInTheDocument();
-    });
-
-    it('does not render History button when onHistoryOpen is not provided', () => {
-      render(
-        <ConversationView
-          messages={[]}
-          isGenerating={false}
-          onClose={vi.fn()}
-        />,
-      );
-      expect(screen.queryByRole('button', { name: /history/i })).toBeNull();
-    });
-
-    it('calls onHistoryOpen when History button is clicked', () => {
-      const onHistoryOpen = vi.fn();
-      render(
-        <ConversationView
-          messages={[]}
-          isGenerating={false}
-          onClose={vi.fn()}
-          onHistoryOpen={onHistoryOpen}
-        />,
-      );
-      fireEvent.click(screen.getByRole('button', { name: /history/i }));
-      expect(onHistoryOpen).toHaveBeenCalledOnce();
-    });
-
-    it('renders Save button when onSave is provided', () => {
-      render(
-        <ConversationView
-          messages={[]}
-          isGenerating={false}
-          onClose={vi.fn()}
-          onSave={vi.fn()}
-          isSaved={false}
-          canSave={true}
-        />,
-      );
-      expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument();
-    });
-
-    it('calls onSave when Save button is clicked', () => {
-      const onSave = vi.fn();
-      render(
-        <ConversationView
-          messages={[]}
-          isGenerating={false}
-          onClose={vi.fn()}
-          onSave={onSave}
-          isSaved={false}
-          canSave={true}
-        />,
-      );
-      fireEvent.click(screen.getByRole('button', { name: /save/i }));
-      expect(onSave).toHaveBeenCalledOnce();
-    });
-
-    it('Save button is disabled when canSave is false', () => {
-      render(
-        <ConversationView
-          messages={[]}
-          isGenerating={false}
-          onClose={vi.fn()}
-          onSave={vi.fn()}
-          isSaved={false}
-          canSave={false}
-        />,
-      );
-      const saveBtn = screen.getByRole('button', { name: /save/i });
-      expect(saveBtn).toBeDisabled();
-    });
-
-    it('Save button is enabled (for unsave) when isSaved is true', () => {
-      render(
-        <ConversationView
-          messages={[]}
-          isGenerating={false}
-          onClose={vi.fn()}
-          onSave={vi.fn()}
-          isSaved={true}
-          canSave={true}
-        />,
-      );
-      const saveBtn = screen.getByRole('button', {
-        name: /remove from history/i,
-      });
-      expect(saveBtn).not.toBeDisabled();
-    });
-
     it('shows floating auto-save tip under bookmark when requested', () => {
       const onAck = vi.fn();
       const onSettings = vi.fn();
@@ -504,10 +372,6 @@ describe('ConversationView', () => {
         <ConversationView
           messages={[]}
           isGenerating={false}
-          onClose={vi.fn()}
-          onSave={vi.fn()}
-          isSaved={true}
-          canSave={true}
           showAutoSaveNotice
           onAutoSaveNoticeAcknowledge={onAck}
           onAutoSaveNoticeSettings={onSettings}
@@ -518,7 +382,6 @@ describe('ConversationView', () => {
       // Floating tip: not a full-width chat strip insert.
       expect(tip.className).not.toMatch(/border-b/);
       expect(tip.parentElement?.style.position).toBe('fixed');
-      expect(screen.getByTestId('auto-save-bookmark')).toBeInTheDocument();
       fireEvent.click(screen.getByTestId('auto-save-notice-ack'));
       expect(onAck).toHaveBeenCalledOnce();
       fireEvent.click(screen.getByTestId('auto-save-notice-settings'));
@@ -526,16 +389,7 @@ describe('ConversationView', () => {
     });
 
     it('hides auto-save notice when showAutoSaveNotice is false', () => {
-      render(
-        <ConversationView
-          messages={[]}
-          isGenerating={false}
-          onClose={vi.fn()}
-          onSave={vi.fn()}
-          isSaved={true}
-          canSave={true}
-        />,
-      );
+      render(<ConversationView messages={[]} isGenerating={false} />);
       expect(screen.queryByTestId('auto-save-notice')).not.toBeInTheDocument();
     });
   });
@@ -553,7 +407,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
         />,
       );
       expect(screen.getByTestId('reasoning-block')).toBeInTheDocument();
@@ -573,7 +426,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           providerKind="builtin"
         />,
       );
@@ -600,7 +452,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           providerKind="builtin"
         />,
       );
@@ -625,7 +476,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={false}
-          onClose={vi.fn()}
         />,
       );
       expect(screen.getByTestId('reasoning-block')).toBeInTheDocument();
@@ -644,7 +494,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
         />,
       );
       // The bubble should render with ReasoningBlock visible
@@ -670,7 +519,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
         />,
       );
       expect(screen.getByTestId('loading-label').textContent).toBe(
@@ -690,7 +538,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
         />,
       );
       // Reasoning path owns chrome via ReasoningBlock's RequestStatusStrip.
@@ -705,13 +552,7 @@ describe('ConversationView', () => {
       role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
       content: `Message ${i}`,
     }));
-    render(
-      <ConversationView
-        messages={messages}
-        isGenerating={false}
-        onClose={vi.fn()}
-      />,
-    );
+    render(<ConversationView messages={messages} isGenerating={false} />);
     for (let i = 0; i < 10; i++) {
       expect(screen.getByText(`Message ${i}`)).toBeInTheDocument();
     }
@@ -726,7 +567,6 @@ describe('ConversationView', () => {
             { id: 'a', role: 'assistant', content: '' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'analyzing_query' }}
         />,
       );
@@ -743,7 +583,6 @@ describe('ConversationView', () => {
             { id: 'a', role: 'assistant', content: '' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'searching' }}
         />,
       );
@@ -760,7 +599,6 @@ describe('ConversationView', () => {
             { id: 'a', role: 'assistant', content: '' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'refining_search', attempt: 2, total: 3 }}
         />,
       );
@@ -777,7 +615,6 @@ describe('ConversationView', () => {
             { id: 'a', role: 'assistant', content: '' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
         />,
       );
       expect(screen.queryByTestId('loading-label')).toBeNull();
@@ -795,7 +632,6 @@ describe('ConversationView', () => {
             { id: 'a', role: 'assistant', content: '' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'reading_sources', gap: true }}
         />,
       );
@@ -812,7 +648,6 @@ describe('ConversationView', () => {
             { id: 'a', role: 'assistant', content: '' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'composing', gap: true }}
         />,
       );
@@ -829,7 +664,6 @@ describe('ConversationView', () => {
             { id: 'a', role: 'assistant', content: '' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'searching', gap: true }}
         />,
       );
@@ -846,7 +680,6 @@ describe('ConversationView', () => {
             { id: 'a', role: 'assistant', content: '' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'reading_sources' }}
         />,
       );
@@ -863,7 +696,6 @@ describe('ConversationView', () => {
             { id: 'a', role: 'assistant', content: '' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'composing' }}
         />,
       );
@@ -889,7 +721,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'verifying_sources' }}
         />,
       );
@@ -910,7 +741,6 @@ describe('ConversationView', () => {
             { id: 'a', role: 'assistant', content: '' },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'verifying_sources' }}
         />,
       );
@@ -932,7 +762,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'searching' }}
         />,
       );
@@ -956,7 +785,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'searching' }}
         />,
       );
@@ -989,7 +817,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'reading_sources' }}
         />,
       );
@@ -1017,7 +844,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'reading_sources' }}
         />,
       );
@@ -1061,7 +887,6 @@ describe('ConversationView', () => {
               },
             ]}
             isGenerating={true}
-            onClose={vi.fn()}
             searchStage={{ kind: 'reading_sources' }}
           />,
         );
@@ -1090,7 +915,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'reading_sources' }}
         />,
       );
@@ -1130,7 +954,6 @@ describe('ConversationView', () => {
               },
             ]}
             isGenerating={true}
-            onClose={vi.fn()}
             searchStage={{ kind: 'reading_sources' }}
           />,
         );
@@ -1175,7 +998,6 @@ describe('ConversationView', () => {
               },
             ]}
             isGenerating={true}
-            onClose={vi.fn()}
             searchStage={{ kind: 'reading_sources' }}
           />,
         );
@@ -1215,7 +1037,6 @@ describe('ConversationView', () => {
                 },
               ]}
               isGenerating={true}
-              onClose={vi.fn()}
               searchStage={{ kind: 'reading_sources' }}
             />,
           );
@@ -1262,7 +1083,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={true}
-          onClose={vi.fn()}
           searchStage={{ kind: 'searching' }}
         />,
       );
@@ -1297,7 +1117,6 @@ describe('ConversationView', () => {
               },
             ]}
             isGenerating={true}
-            onClose={vi.fn()}
             searchStage={{ kind: 'composing' }}
           />,
         );
@@ -1335,7 +1154,6 @@ describe('ConversationView', () => {
               },
             ]}
             isGenerating={true}
-            onClose={vi.fn()}
             searchStage={{ kind: 'reading_sources' }}
           />,
         );
@@ -1397,7 +1215,6 @@ describe('ConversationView', () => {
               },
             ]}
             isGenerating={true}
-            onClose={vi.fn()}
             searchStage={{ kind: 'reading_sources' }}
           />,
         );
@@ -1456,7 +1273,6 @@ describe('ConversationView', () => {
         <ConversationView
           messages={plainMessages}
           isGenerating={true}
-          onClose={vi.fn()}
           providerKind="builtin"
         />,
       );
@@ -1473,7 +1289,6 @@ describe('ConversationView', () => {
         <ConversationView
           messages={plainMessages}
           isGenerating={true}
-          onClose={vi.fn()}
           providerKind="builtin"
           engineWarming={true}
         />,
@@ -1488,7 +1303,6 @@ describe('ConversationView', () => {
         <ConversationView
           messages={plainMessages}
           isGenerating={true}
-          onClose={vi.fn()}
           providerKind="openai"
         />,
       );
@@ -1503,7 +1317,6 @@ describe('ConversationView', () => {
         <ConversationView
           messages={plainMessages}
           isGenerating={true}
-          onClose={vi.fn()}
           providerKind="builtin"
           engineWarming={true}
           searchStage={{ kind: 'analyzing_query' }}
@@ -1519,7 +1332,6 @@ describe('ConversationView', () => {
         <ConversationView
           messages={plainMessages}
           isGenerating={true}
-          onClose={vi.fn()}
           providerKind="builtin"
           engineState="loaded"
         />,
@@ -1564,7 +1376,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={false}
-          onClose={vi.fn()}
           onLoadAnyway={onLoadAnyway}
         />,
       );
@@ -1596,7 +1407,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={false}
-          onClose={vi.fn()}
           onLoadAnyway={vi.fn()}
         />,
       );
@@ -1640,7 +1450,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={false}
-          onClose={vi.fn()}
           onSwitchModel={onSwitchModel}
         />,
       );
@@ -1666,7 +1475,6 @@ describe('ConversationView', () => {
             },
           ]}
           isGenerating={false}
-          onClose={vi.fn()}
           onSwitchModel={onSwitchModel}
         />,
       );

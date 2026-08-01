@@ -27,11 +27,6 @@ describe('WindowControls', () => {
     expect(decorativeDivs).toHaveLength(2);
   });
 
-  it('renders divider separator (bg-surface-border)', () => {
-    const { container } = render(<WindowControls onClose={vi.fn()} />);
-    expect(container.querySelector('.bg-surface-border')).not.toBeNull();
-  });
-
   it('close button blurs itself on programmatic focus (no relatedTarget)', () => {
     render(<WindowControls onClose={vi.fn()} />);
     const btn = screen.getByRole('button', { name: 'Close window' });

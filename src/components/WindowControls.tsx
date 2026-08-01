@@ -8,8 +8,6 @@
  *
  * Window dragging is handled by the application root container via event
  * bubbling - mousedown events from the bar surface propagate up naturally.
- * A subtle divider at the bottom visually separates the controls from
- * the chat messages area below.
  */
 
 import { memo, type RefObject } from 'react';
@@ -418,9 +416,6 @@ export const WindowControls = memo(function WindowControls({
           )}
         </div>
       </div>
-
-      {/* Divider between controls and chat area */}
-      <div className="h-px bg-surface-border" />
     </div>
   );
 });

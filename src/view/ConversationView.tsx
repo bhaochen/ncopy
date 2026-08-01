@@ -1,9 +1,9 @@
 import { motion } from 'framer-motion';
 import { useCallback, useRef, useEffect } from 'react';
+import type { RefObject } from 'react';
 import { AutoSaveNoticeTip } from '../components/AutoSaveNoticeTip';
 import { ChatBubble } from '../components/ChatBubble';
 import { RequestStatusStrip } from '../components/RequestStatusStrip';
-import { WindowControls } from '../components/WindowControls';
 import { useEngineLoadingLabel } from '../hooks/useEngineLoadingLabel';
 import type { Message, RetrySnapshot } from '../hooks/useModel';
 import type { SearchStage } from '../types/search';
@@ -46,33 +46,6 @@ interface ConversationViewProps {
   messages: Message[];
   /** Whether the underlying LLM engine is currently generating a response. */
   isGenerating: boolean;
-  /** Callback fired when the user requests to close the overlay. */
-  onClose: () => void;
-  /**
-   * Called when the bookmark icon is clicked to persist the conversation.
-   * Omit to hide the save button.
-   */
-  onSave?: () => void;
-  /**
-   * True once the conversation has been saved. Renders the bookmark filled
-   * and disables the button.
-   */
-  isSaved?: boolean;
-  /**
-   * True when there is at least one completed AI response available to save.
-   * Controls whether the bookmark button is interactive.
-   */
-  canSave?: boolean;
-  /**
-   * Called when the "History ▾" button is clicked.
-   * Omit to hide the history button.
-   */
-  onHistoryOpen?: () => void;
-  /**
-   * Called when the new-conversation (+) button is clicked.
-   * Omit to hide the button.
-   */
-  onNewConversation?: () => void;
   /** Called when the user clicks a thumbnail to preview it. */
   onImagePreview?: (path: string) => void;
   /**
@@ -86,20 +59,13 @@ interface ConversationViewProps {
    * of the typing indicator.
    */
   searchStage?: SearchStage;
-  /** Currently active model slug forwarded to the WindowControls pill trigger.
-   *  `null` keeps the chip visible with a "Pick a model" placeholder. */
-  activeModel?: string | null;
   /**
-   * Friendly display name per model id, forwarded to the titlebar pill and the
-   * per-message attribution chips so built-in model ids render their elegant
-   * label (e.g. "Qwen3.5 9B") instead of the raw "repo:file.gguf" slug, exactly
-   * as the model picker does. Ids without an entry render verbatim.
+   * Friendly display name per model id, used by the per-message attribution
+   * chips so built-in model ids render their elegant label (e.g. "Qwen3.5
+   * 9B") instead of the raw "repo:file.gguf" slug, exactly as the model
+   * picker does. Ids without an entry render verbatim.
    */
   modelDisplayNames?: Record<string, string>;
-  /** Toggles the model picker panel; forwarded to WindowControls. */
-  onModelPickerToggle?: () => void;
-  /** Whether the model picker panel is open; drives aria-expanded on the pill. */
-  isModelPickerOpen?: boolean;
   /**
    * Opens the model picker from an `EngineStartFailed` or `InsufficientMemory`
    * error card so a failed model load is never a dead end. Given the
@@ -117,17 +83,10 @@ interface ConversationViewProps {
    *  model" (`true`) choice from the card's action buttons. */
   onLoadAnyway?: (snapshot: RetrySnapshot, remember: boolean) => void;
   /**
-   * Called when the user clicks the minimize (yellow) dot.
-   * Omit when there is no conversation to park (ask-bar mode).
+   * Bookmark button owned by the host's titlebar (WindowControls). Used to
+   * anchor the floating auto-save notice caret under the save control.
    */
-  onMinimize?: () => void;
-  /**
-   * Called when the user clicks the export button to toggle the export
-   * options popover. Omit to hide the export button entirely.
-   */
-  onExportToggle?: () => void;
-  /** Drives `aria-expanded` on the export button. */
-  isExportOpen?: boolean;
+  bookmarkButtonRef?: RefObject<HTMLButtonElement | null>;
   /**
    * Active provider's `kind` (`builtin` | `ollama` | `openai`). Drives
    * whether a cold-start loading label can appear at all: only the two
@@ -171,24 +130,13 @@ interface ConversationViewProps {
 export function ConversationView({
   messages,
   isGenerating,
-  onClose,
-  onSave,
-  isSaved,
-  canSave,
-  onHistoryOpen,
-  onNewConversation,
   onImagePreview,
   onReplace,
   searchStage = null,
-  activeModel,
   modelDisplayNames,
-  onModelPickerToggle,
-  isModelPickerOpen,
   onSwitchModel,
   onLoadAnyway,
-  onMinimize,
-  onExportToggle,
-  isExportOpen,
+  bookmarkButtonRef,
   showAutoSaveNotice = false,
   onAutoSaveNoticeAcknowledge,
   onAutoSaveNoticeSettings,
@@ -197,8 +145,6 @@ export function ConversationView({
   engineState = 'stopped',
 }: ConversationViewProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  /** Bookmark button for floating auto-save tip caret alignment. */
-  const bookmarkButtonRef = useRef<HTMLButtonElement>(null);
 
   // True while the trailing assistant message is waiting on its first token
   // (or, for a /think turn, its first thinking token) from a non-search chat
@@ -220,6 +166,9 @@ export function ConversationView({
     engineWarming,
     engineState,
   );
+
+  /** Fallback anchor when the host does not own a titlebar bookmark. */
+  const fallbackAnchorRef = useRef<HTMLButtonElement>(null);
 
   /** Threshold in pixels - if within this distance of the bottom, consider "near bottom". */
   const NEAR_BOTTOM_THRESHOLD = 60;
@@ -365,27 +314,9 @@ export function ConversationView({
       transition={{ opacity: { duration: 0.2 } }}
       className="chat-area flex-1 min-h-0 flex flex-col"
     >
-      <WindowControls
-        onClose={onClose}
-        onSave={onSave}
-        isSaved={isSaved}
-        canSave={canSave}
-        onNewConversation={onNewConversation}
-        onHistoryOpen={onHistoryOpen}
-        activeModel={activeModel}
-        displayNames={modelDisplayNames}
-        onModelPickerToggle={onModelPickerToggle}
-        isModelPickerOpen={isModelPickerOpen}
-        onMinimize={onMinimize}
-        onExportToggle={onExportToggle}
-        isExportOpen={isExportOpen}
-        bookmarkButtonRef={bookmarkButtonRef}
-        saveButtonTestId="auto-save-bookmark"
-      />
-
       <AutoSaveNoticeTip
         open={showAutoSaveNotice}
-        anchorRef={bookmarkButtonRef}
+        anchorRef={bookmarkButtonRef ?? fallbackAnchorRef}
         onAcknowledge={() => onAutoSaveNoticeAcknowledge?.()}
         onOpenSettings={() => onAutoSaveNoticeSettings?.()}
       />

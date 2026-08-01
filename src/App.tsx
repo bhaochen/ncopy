@@ -58,6 +58,7 @@ import { TipBar } from './components/TipBar';
 import { UpdateFooterBar } from './components/UpdateFooterBar';
 import { MascotStage } from './components/MascotStage';
 import type { MascotStageState } from './components/MascotStage';
+import { WindowControls } from './components/WindowControls';
 import { useTips } from './hooks/useTips';
 import { useUpdater } from './hooks/useUpdater';
 import type { AttachedImage } from './types/image';
@@ -1079,6 +1080,13 @@ function App() {
    * animation. Reported by AskBarView's focusin/focusout delegation.
    */
   const [isListening, setIsListening] = useState(false);
+
+  /**
+   * Bookmark (save) button in the titlebar `WindowControls`. Owned here so
+   * both the titlebar and the chat area's floating auto-save tip can anchor
+   * on the same control.
+   */
+  const bookmarkButtonRef = useRef<HTMLButtonElement>(null);
 
   /**
    * Active mascot stage. `thinking` outranks `listening` outranks `idle`: a
@@ -4454,6 +4462,36 @@ function App() {
                           }}
                           className="morphing-container relative flex flex-col overflow-hidden"
                         >
+                          {/* Titlebar controls. Rendered above the mascot
+                    stage so the traffic lights sit at the very top of the
+                    overlay, only once the chat window expands. */}
+                          {isChatMode && (
+                            <WindowControls
+                              onClose={handleCloseOverlay}
+                              onSave={handleSave}
+                              isSaved={isSaved}
+                              canSave={canSave}
+                              onNewConversation={handleNewConversation}
+                              onHistoryOpen={handleHistoryToggle}
+                              activeModel={activeModel}
+                              displayNames={modelDisplayNames}
+                              onModelPickerToggle={
+                                ollamaReachable
+                                  ? handleModelPickerToggle
+                                  : undefined
+                              }
+                              isModelPickerOpen={isModelPickerOpen}
+                              onMinimize={handleMinimize}
+                              onExportToggle={
+                                messages.length > 0
+                                  ? handleExportToggle
+                                  : undefined
+                              }
+                              isExportOpen={isExportOpen}
+                              bookmarkButtonRef={bookmarkButtonRef}
+                              saveButtonTestId="auto-save-bookmark"
+                            />
+                          )}
                           {/* Mascot video stage - 512x512 lifecycle animation
                     (idle / listening / thinking). Always visible at the top
                     of the overlay so the mascot is the face of the app in
@@ -4469,32 +4507,13 @@ function App() {
                                     : messages
                                 }
                                 isGenerating={isGenerating || isSubmitPending}
-                                onClose={handleCloseOverlay}
-                                onSave={handleSave}
-                                isSaved={isSaved}
-                                canSave={canSave}
-                                onNewConversation={handleNewConversation}
-                                onHistoryOpen={handleHistoryToggle}
                                 onImagePreview={handleChatImagePreview}
                                 onReplace={performReplace}
                                 searchStage={searchStage}
-                                activeModel={activeModel}
                                 modelDisplayNames={modelDisplayNames}
-                                onModelPickerToggle={
-                                  ollamaReachable
-                                    ? handleModelPickerToggle
-                                    : undefined
-                                }
-                                isModelPickerOpen={isModelPickerOpen}
                                 onSwitchModel={handleSwitchModelFromError}
                                 onLoadAnyway={handleLoadAnywayWithRemember}
-                                onMinimize={handleMinimize}
-                                onExportToggle={
-                                  messages.length > 0
-                                    ? handleExportToggle
-                                    : undefined
-                                }
-                                isExportOpen={isExportOpen}
+                                bookmarkButtonRef={bookmarkButtonRef}
                                 providerKind={
                                   config.inference.activeProviderKind
                                 }
