@@ -149,6 +149,11 @@ export function ModelSelect({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const listboxRef = useRef<HTMLDivElement>(null);
+  const filterRef = useRef<HTMLInputElement>(null);
+  /** Popover-open timestamp. Scroll/resize within the settle window right
+   * after opening is an artifact of focus or repaint, not the user scrolling
+   * the popover away from its trigger, so it is ignored. */
+  const openedAtRef = useRef(0);
 
   const selected = items.find((i) => i.id === value);
   const triggerLabel = selected ? selected.label : placeholder;
@@ -188,6 +193,7 @@ export function ModelSelect({
       // current model rather than the first one, matching a native <select>.
       const selectedIndex = items.findIndex((i) => i.id === value);
       setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : 0);
+      openedAtRef.current = Date.now();
       setOpen(true);
     }
   }, [items, value]);
@@ -207,16 +213,45 @@ export function ModelSelect({
     };
     // The popover is fixed-positioned from a one-time trigger measurement, so
     // scrolling the Settings body or resizing the window would detach it from
-    // the trigger; dismiss it instead of leaving it floating.
+    // the trigger; dismiss it instead of leaving it floating. The settle window
+    // absorbs the scroll/repaint a focus-driven scroll-into-view can fire in
+    // the instant after opening, which would otherwise close the popover the
+    // moment it appears.
+    //
+    // Scrolling the popover's OWN model list (wheel over the list, or the
+    // scroll-into-view that follows a hover-highlight change) must NOT dismiss
+    // it: that scroll stays inside the popover, which stays anchored to the
+    // trigger. Only a scroll outside the popover (the Settings body, the
+    // window) is a sign the popover has detached and should close.
+    const onScroll = (e: Event) => {
+      // `contains` only accepts a Node; a scroll event can target the Window
+      // (never a Node) in test harnesses, so guard before calling it.
+      const target = e.target instanceof Node ? e.target : null;
+      if (target && popoverRef.current?.contains(target)) return;
+      if (Date.now() - openedAtRef.current < 150) return;
+      close();
+    };
+    const onResize = () => {
+      if (Date.now() - openedAtRef.current < 150) return;
+      close();
+    };
     document.addEventListener('mousedown', onPointerDown);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
     return () => {
       document.removeEventListener('mousedown', onPointerDown);
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
     };
   }, [open, close]);
+
+  // Focus the filter without scrolling: native autofocus calls focus() without
+  // preventScroll, and the scroll-into-view it triggers fires a scroll event
+  // that the popover's dismiss-on-scroll listener would misread as the user
+  // scrolling away, closing the popover the instant it opens.
+  useEffect(() => {
+    if (open) filterRef.current?.focus({ preventScroll: true });
+  }, [open]);
 
   // Keep the highlighted row visible when arrow keys move it off-screen.
   useEffect(() => {
@@ -264,6 +299,7 @@ export function ModelSelect({
           <div className={styles.filter}>
             {SEARCH_ICON}
             <input
+              ref={filterRef}
               type="text"
               role="combobox"
               aria-controls={LISTBOX_ID}
@@ -272,7 +308,6 @@ export function ModelSelect({
               aria-autocomplete="list"
               aria-label={`Filter ${ariaLabel}`}
               value={filter}
-              autoFocus
               spellCheck={false}
               autoComplete="off"
               placeholder="Filter models…"

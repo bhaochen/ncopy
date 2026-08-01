@@ -36,7 +36,7 @@ flowchart LR
   end
 ```
 
-Thuki supports two **providers** (the thing that runs the model): the **built-in** engine (the default, fully managed by Thuki) and **Ollama** (your own install, optional). Both run llama.cpp under the hood; the difference is who manages it. The rest of this guide is mostly about the built-in engine.
+Thuki supports four **providers** (the thing that runs the model): the **built-in** engine (the default, fully managed by Thuki), **Ollama** (your own install, optional), and two hosted OpenAI-compatible `/v1` services, **OpenCode Zen** and **NVIDIA NIM** (seeded automatically in Settings → Models → Providers, browsable and selectable with an API key). Both local providers run llama.cpp under the hood; the difference is who manages it. The rest of this guide is mostly about the built-in engine.
 
 ## The built-in engine
 
@@ -404,16 +404,16 @@ Day to day, you manage all of this from **Settings → Models** (open Settings f
 
 - **Library**: your installed models, with capability badges and a `size · context · maker · quant` line. Per row: set active, reveal the file on disk, or delete it.
 - **Discover**: **Staff picks** (the curated catalog) and **Browse all** (raw Hugging Face search).
-- **Providers**: the active provider as a hero card, the other as a compact row, and a shared **Generation** section: the context window, **Keep Warm**, and the system prompt. See [Tuning the Context Window](./tuning-context-window.md).
+- **Providers**: the active provider as a hero card, the others as compact rows with a Switch, and a shared **Generation** section: the context window, **Keep Warm**, and the system prompt. The hosted services (OpenCode Zen, NVIDIA NIM) get a card for their base URL, model catalog, and write-only API key. See [Tuning the Context Window](./tuning-context-window.md).
 
-## Providers: built-in vs Ollama
+## Providers: built-in vs Ollama vs hosted
 
-|                   | **Built-in** (default)                | **Ollama** (optional)                 |
-| ----------------- | ------------------------------------- | ------------------------------------- |
-| Who runs it       | Thuki                                 | You (install Ollama yourself)         |
-| Setup             | None, it is bundled                   | Install Ollama, `ollama pull <model>` |
-| Engine underneath | llama.cpp `llama-server`              | llama.cpp (Ollama's own build)        |
-| Models            | GGUF files Thuki downloads and stores | Whatever you pull in Ollama           |
-| Lifecycle         | Thuki starts/stops/kills the sidecar  | Ollama manages its own server         |
+|                   | **Built-in** (default)                | **Ollama** (optional)                 | **OpenCode Zen / NVIDIA NIM** (hosted) |
+| ----------------- | ------------------------------------- | ------------------------------------- | --------------------------------------- |
+| Who runs it       | Thuki                                 | You (install Ollama yourself)         | The service's cloud                       |
+| Setup             | None, it is bundled                   | Install Ollama, `ollama pull <model>` | Add an API key in Settings, pick a model |
+| Engine underneath | llama.cpp `llama-server`              | llama.cpp (Ollama's own build)        | OpenAI-compatible `/v1` API               |
+| Models            | GGUF files Thuki downloads and stores | Whatever you pull in Ollama           | The service's hosted catalog              |
+| Lifecycle         | Thuki starts/stops/kills the sidecar  | Ollama manages its own server         | Nothing to manage                         |
 
-Both are local and private; both are llama.cpp underneath. The built-in engine exists so Thuki works the moment you install it, with nothing to set up. If you already run Ollama and prefer it, switch to it in **Settings → Models → Providers**; switching frees the model the other provider was holding, so only one is resident at a time.
+Both local providers are private and run llama.cpp underneath. The built-in engine exists so Thuki works the moment you install it, with nothing to set up. The hosted services answer over the network and send your conversation to their cloud (OpenCode Zen serves anonymous traffic; NVIDIA NIM requires an API key, stored only in your Keychain). Switch providers in **Settings → Models → Providers**; switching frees the model the local provider was holding, so only one is resident at a time.

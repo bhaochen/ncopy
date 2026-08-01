@@ -115,9 +115,10 @@ export interface ModelPickerPanelProps {
    */
   compact?: boolean;
   /**
-   * Kind of the active provider (`'builtin' | 'ollama' | 'openai'`), from
-   * `ConfigContext`. Selects the empty-state copy: a builtin user is sent
-   * to the Settings download picker and an openai user to the provider's
+   * Kind of the active provider (`'builtin' | 'ollama' | 'openai' |
+   * 'opencode' | 'nvidia'`), from `ConfigContext`. Selects the empty-state
+   * copy: a builtin user is sent to the Settings download picker, and a
+   * remote `/v1` user (`openai` / `opencode` / `nvidia`) to the provider's
    * model field, never to `ollama pull`. Defaults to `'ollama'`, matching
    * ConfigContext's fallback for an unresolvable provider.
    */
@@ -383,7 +384,9 @@ export function ModelPickerPanel({
                   , then come back.
                 </>
               )
-            ) : providerKind === 'openai' ? (
+            ) : providerKind === 'openai' ||
+              providerKind === 'opencode' ||
+              providerKind === 'nvidia' ? (
               OPENAI_NO_MODEL_MESSAGE
             ) : (
               <>

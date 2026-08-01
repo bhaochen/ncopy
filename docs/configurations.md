@@ -62,6 +62,25 @@ label = "Ollama"
 base_url = "http://127.0.0.1:11434"
 model = ""
 
+# OpenCode Zen: a hosted OpenAI-compatible /v1 service, seeded automatically.
+# The API key is optional (Zen serves anonymous traffic); when set it lives
+# only in the macOS Keychain, never in this file.
+[[inference.providers]]
+id = "opencode"
+kind = "opencode"
+label = "OpenCode"
+base_url = "https://opencode.ai/zen/v1"
+model = ""
+
+# NVIDIA NIM: a hosted OpenAI-compatible /v1 service, seeded automatically.
+# Chat requires an API key, stored in the Keychain only.
+[[inference.providers]]
+id = "nvidia"
+kind = "nvidia"
+label = "NVIDIA"
+base_url = "https://integrate.api.nvidia.com/v1"
+model = ""
+
 [prompt]
 # The full secretary persona prompt. Seeded on first run. Save changes via
 # Settings, which marks the prompt customized so your edit is kept; a hand edit
@@ -142,9 +161,9 @@ Every domain below is shown as a single table that lists **all** constants Thuki
 
 ### `[inference]`
 
-Thuki reaches a model through a **provider**. `active_provider` names which one is used; each provider is described by a `[[inference.providers]]` block. Two kinds exist: **Built-in**, the bundled llama.cpp `llama-server` that Thuki spawns and manages itself (no setup, the default on a fresh install); and **Ollama**, reached over HTTP at a configurable URL, local or remote.
+Thuki reaches a model through a **provider**. `active_provider` names which one is used; each provider is described by a `[[inference.providers]]` block. Four kinds exist: **Built-in**, the bundled llama.cpp `llama-server` that Thuki spawns and manages itself (no setup, the default on a fresh install); **Ollama**, reached over HTTP at a configurable URL, local or remote; and two hosted OpenAI-compatible `/v1` services, **OpenCode Zen** (`opencode`) and **NVIDIA NIM** (`nvidia`), seeded automatically for browsing and selecting models without a terminal.
 
-Each provider keeps its own selected `model`. For the built-in engine, models are GGUF files Thuki downloads itself: pick a curated starter (or paste a Hugging Face repo id) in onboarding or Settings → Models → Discover, and manage installed models from the same place. For Ollama, Thuki discovers installed models live from the `/api/tags` endpoint; pull a model with `ollama pull <slug>` and select it. In every case the choice is written to that provider's `model` field, and when no model is installed and none has been chosen, Thuki refuses to dispatch a chat request and surfaces a "Pick a model" prompt.
+Each provider keeps its own selected `model`. For the built-in engine, models are GGUF files Thuki downloads itself: pick a curated starter (or paste a Hugging Face repo id) in onboarding or Settings → Models → Discover, and manage installed models from the same place. For Ollama, Thuki discovers installed models live from the `/api/tags` endpoint; pull a model with `ollama pull <slug>` and select it. For the hosted services, browse the live catalog in Settings → Models → Providers (keyed by the API key when one is set) and pick a model. In every case the choice is written to that provider's `model` field, and when no model is installed and none has been chosen, Thuki refuses to dispatch a chat request and surfaces a "Pick a model" prompt.
 
 Upgrading from an older version is automatic: an older config is migrated in place on first load, so your provider and selected model carry over with no manual steps.
 
@@ -158,10 +177,10 @@ Each `[[inference.providers]]` block has these fields:
 
 | Field      | Description                                                                                                                                                  |
 | :--------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`       | Stable identifier referenced by `active_provider`. The `builtin` and `ollama` ids are seeded automatically.                                                  |
-| `kind`     | `"builtin"` or `"ollama"`. Determines how Thuki talks to the provider.                                       |
-| `label`    | Human-readable name shown in Settings.                                                                                                                       |
-| `base_url` | For the `ollama` kind: the server's base URL, defaults to `http://127.0.0.1:11434` if empty (then re-seeded). Empty for the `builtin` kind. |
+| `id`       | Stable identifier referenced by `active_provider`. The `builtin`, `ollama`, `opencode`, and `nvidia` ids are seeded automatically.                                                  |
+| `kind`     | `"builtin"`, `"ollama"`, `"opencode"`, or `"nvidia"`. Determines how Thuki talks to the provider. The two hosted kinds are OpenAI-compatible `/v1` servers and accept either a bare or `/v1`-suffixed `base_url`.                                       |
+| `label`    | Human-readable name shown in Settings. The built-in and hosted-service labels are fixed and re-healed on load; only `ollama` (and a user-added `openai` server) labels are editable.                                                                                                                       |
+| `base_url` | For the `ollama` kind: the server's base URL, defaults to `http://127.0.0.1:11434` if empty (then re-seeded). Empty for the `builtin` kind. For the hosted kinds, defaults to the service's documented URL (re-seeded if emptied). |
 | `model`    | The model selected for this provider, written when you pick one. Empty means "none chosen yet".                                                              |
 
 If the active model has been removed from Ollama between launches, Thuki silently falls back to the first installed model the next time you open the picker. If no models are installed at all, the next request surfaces a "Model not found" error with the exact `ollama pull <name>` command to run.

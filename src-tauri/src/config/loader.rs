@@ -64,7 +64,35 @@ pub fn load_from_path(path: &Path) -> Result<AppConfig, ConfigError> {
 fn load_from_contents(path: &Path, contents: &str) -> Result<AppConfig, ConfigError> {
     match toml::from_str::<AppConfig>(contents) {
         Ok(mut config) => {
+            // Snapshot the on-disk provider ids before resolution so a
+            // provider-list change can be detected and persisted.
+            let disk_provider_ids: Vec<String> = config
+                .inference
+                .providers
+                .iter()
+                .map(|p| p.id.clone())
+                .collect();
             resolve(&mut config);
+            // The loader synthesizes mandatory providers in memory when a file
+            // omits them: the built-in engine, Ollama, and the seeded hosted
+            // services (OpenCode Zen, NVIDIA NIM). Persist the reseeded list
+            // so the on-disk write commands (`set_active_provider`,
+            // `update_provider_field`, ...) validate against the same provider
+            // set memory sees. Without this, switching to a freshly-seeded
+            // provider fails its on-disk id check and the UI change silently
+            // never takes effect.
+            let resolved_provider_ids: Vec<String> = config
+                .inference
+                .providers
+                .iter()
+                .map(|p| p.id.clone())
+                .collect();
+            if disk_provider_ids != resolved_provider_ids {
+                atomic_write(path, &config).map_err(|source| ConfigError::IoError {
+                    path: path.to_path_buf(),
+                    source,
+                })?;
+            }
             Ok(config)
         }
         Err(parse_err) => {
@@ -259,9 +287,12 @@ pub(crate) fn resolve(config: &mut AppConfig) {
 fn resolve_inference(inf: &mut crate::config::schema::InferenceSection) {
     use crate::config::defaults::{
         DEFAULT_ACTIVE_PROVIDER, DEFAULT_BUILTIN_LABEL, PROVIDER_ID_BUILTIN, PROVIDER_ID_OLLAMA,
-        PROVIDER_KIND_BUILTIN, PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI,
+        PROVIDER_KIND_BUILTIN, PROVIDER_KIND_NVIDIA, PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI,
+        PROVIDER_KIND_OPENCODE,
     };
-    use crate::config::schema::{builtin_provider, ollama_provider};
+    use crate::config::schema::{
+        builtin_provider, nvidia_provider, ollama_provider, opencode_provider,
+    };
 
     // Snapshot the file shape before any provider synthesis or reseed: a
     // pre-providers file (no [[inference.providers]] array) deserializes to
@@ -322,18 +353,20 @@ fn resolve_inference(inf: &mut crate::config::schema::InferenceSection) {
     // ollama:  kept when base_url is non-empty (Ollama heal loop above already
     //          reset bad schemes; an empty URL is dropped and the reseed below
     //          restores the localhost default).
-    // openai:  kept only when base_url is a valid http(s) URL. Unlike Ollama
-    //          there is no sensible localhost default for arbitrary /v1 servers,
-    //          so an empty or non-http(s) URL is dropped without healing.
+    // openai / opencode / nvidia: kept only when base_url is a valid http(s)
+    //          URL. Unlike Ollama there is no sensible localhost default for
+    //          arbitrary /v1 servers, so an empty or non-http(s) URL is dropped
+    //          without healing. Dropping triggers the reseed below, which
+    //          restores the service's default hosted URL.
     inf.providers.retain(|p| match p.kind.as_str() {
         PROVIDER_KIND_BUILTIN => true,
         PROVIDER_KIND_OLLAMA => !p.base_url.trim().is_empty(),
-        PROVIDER_KIND_OPENAI => {
+        PROVIDER_KIND_OPENAI | PROVIDER_KIND_OPENCODE | PROVIDER_KIND_NVIDIA => {
             let ok = is_http_url(&p.base_url);
             if !ok {
                 eprintln!(
-                    "thuki: [config] dropping openai provider '{}': base_url must be a non-empty http(s) URL",
-                    p.id
+                    "thuki: [config] dropping '{}' provider '{}': base_url must be a non-empty http(s) URL",
+                    p.kind, p.id
                 );
             }
             ok
@@ -355,6 +388,18 @@ fn resolve_inference(inf: &mut crate::config::schema::InferenceSection) {
     // Ensure the Ollama provider exists: re-seed it if a user file omitted it.
     if !inf.providers.iter().any(|p| p.kind == PROVIDER_KIND_OLLAMA) {
         inf.providers.push(ollama_provider(DEFAULT_OLLAMA_URL));
+    }
+    // OpenCode Zen and NVIDIA NIM are fixed hosted services; re-seed them if a
+    // user file omitted (or a drop above removed) them.
+    if !inf
+        .providers
+        .iter()
+        .any(|p| p.kind == PROVIDER_KIND_OPENCODE)
+    {
+        inf.providers.push(opencode_provider());
+    }
+    if !inf.providers.iter().any(|p| p.kind == PROVIDER_KIND_NVIDIA) {
+        inf.providers.push(nvidia_provider());
     }
 
     // The built-in label is a fixed system label, not user-editable, so heal it

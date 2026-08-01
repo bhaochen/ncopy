@@ -748,4 +748,37 @@ describe('getEnvironmentMessage', () => {
       ).toBeNull();
     });
   });
+
+  describe('opencode and nvidia providers', () => {
+    // OpenCode Zen and NVIDIA NIM are fixed hosted `/v1` services seeded by
+    // the loader. They share the openai branch: the only inventory a remote
+    // provider has is its configured model, so every environment-state copy
+    // routes to Settings and never to `ollama pull` or "start Ollama".
+    const remoteKinds = ['opencode', 'nvidia'];
+
+    for (const kind of remoteKinds) {
+      it(`${kind}: shows the generic model-state copy when the picker IPC call failed`, () => {
+        expect(getEnvironmentMessage(false, 0, null, kind)).toBe(
+          MODEL_STATE_UNAVAILABLE_MESSAGE,
+        );
+      });
+
+      it(`${kind}: points at Settings when no model is configured`, () => {
+        expect(getEnvironmentMessage(true, 0, null, kind)).toBe(
+          OPENAI_NO_MODEL_MESSAGE,
+        );
+        expect(OPENAI_NO_MODEL_MESSAGE).not.toContain('Ollama');
+      });
+
+      it(`${kind}: points at Settings when models exist but none is active (defensive)`, () => {
+        expect(getEnvironmentMessage(true, 1, null, kind)).toBe(
+          OPENAI_NO_MODEL_MESSAGE,
+        );
+      });
+
+      it(`${kind}: returns null when the configured model is active`, () => {
+        expect(getEnvironmentMessage(true, 1, 'gpt-4o-mini', kind)).toBeNull();
+      });
+    }
+  });
 });

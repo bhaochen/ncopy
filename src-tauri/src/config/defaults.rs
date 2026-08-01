@@ -17,10 +17,14 @@ pub const PROVIDER_ID_OLLAMA: &str = "ollama";
 /// Fixed id of the (at most one) OpenAI-compatible provider record. A single
 /// record mirrors the single Ollama URL: one external server at a time.
 pub const PROVIDER_ID_OPENAI: &str = "openai";
+/// Fixed id of the OpenCode Zen provider record (remote, /v1 OpenAI-compatible).
+pub const PROVIDER_ID_OPENCODE: &str = "opencode";
+/// Fixed id of the NVIDIA NIM provider record (remote, /v1 OpenAI-compatible).
+pub const PROVIDER_ID_NVIDIA: &str = "nvidia";
 
 /// Provider kinds understood by the loader. Providers with any other kind are
 /// dropped during resolution. Recognized kinds: `"builtin"`, `"ollama"`,
-/// `"openai"`.
+/// `"openai"`, `"opencode"`, `"nvidia"`.
 pub const PROVIDER_KIND_BUILTIN: &str = "builtin";
 pub const PROVIDER_KIND_OLLAMA: &str = "ollama";
 /// Any OpenAI-compatible local or remote inference server (LM Studio, Jan,
@@ -28,12 +32,30 @@ pub const PROVIDER_KIND_OLLAMA: &str = "ollama";
 /// an empty or non-http(s) URL are dropped rather than healed (unlike Ollama,
 /// there is no sensible localhost default for arbitrary /v1 servers).
 pub const PROVIDER_KIND_OPENAI: &str = "openai";
+/// The OpenCode Zen inference service (https://opencode.ai/zen/v1). A remote
+/// /v1 OpenAI-compatible server like `openai`; API key is optional (Zen serves
+/// anonymous traffic) but supported.
+pub const PROVIDER_KIND_OPENCODE: &str = "opencode";
+/// NVIDIA NIM (https://integrate.api.nvidia.com/v1). A remote /v1
+/// OpenAI-compatible server like `openai`, gated on an NVIDIA API key.
+pub const PROVIDER_KIND_NVIDIA: &str = "nvidia";
 
 /// Human-readable provider labels shown in Settings.
 pub const DEFAULT_BUILTIN_LABEL: &str = "Built-in";
 pub const DEFAULT_OLLAMA_LABEL: &str = "Ollama";
 /// Fallback label for an OpenAI-compatible provider added with no label.
 pub const DEFAULT_OPENAI_LABEL: &str = "OpenAI-compatible";
+/// Label of the OpenCode Zen provider (fixed, like the built-in label).
+pub const DEFAULT_OPENCODE_LABEL: &str = "OpenCode";
+/// Label of the NVIDIA NIM provider (fixed, like the built-in label).
+pub const DEFAULT_NVIDIA_LABEL: &str = "NVIDIA";
+
+/// Default OpenCode Zen base URL. OpenCode Zen exposes an OpenAI-compatible
+/// `/v1` API at this origin.
+pub const DEFAULT_OPENCODE_URL: &str = "https://opencode.ai/zen/v1";
+/// Default NVIDIA NIM base URL. NVIDIA's hosted model API is OpenAI-compatible
+/// at this origin.
+pub const DEFAULT_NVIDIA_URL: &str = "https://integrate.api.nvidia.com/v1";
 
 /// Provider Thuki sends inference to on a fresh install.
 ///

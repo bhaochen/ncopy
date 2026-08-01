@@ -18,14 +18,16 @@ use super::defaults::{
     DEFAULT_AUTO_SAVE_CONVERSATIONS, DEFAULT_AUTO_SAVE_NOTICE_ACKNOWLEDGED, DEFAULT_AUTO_SEARCH,
     DEFAULT_BUILTIN_LABEL, DEFAULT_DEBUG_TRACE_ENABLED, DEFAULT_HISTORY_RETENTION_DAYS,
     DEFAULT_KEEP_WARM_INACTIVITY_MINUTES, DEFAULT_MAX_CHAT_HEIGHT, DEFAULT_MAX_IMAGES,
-    DEFAULT_NUM_CTX, DEFAULT_OLLAMA_LABEL, DEFAULT_OLLAMA_URL, DEFAULT_OVERLAY_WIDTH,
+    DEFAULT_NUM_CTX, DEFAULT_NVIDIA_LABEL, DEFAULT_NVIDIA_URL, DEFAULT_OLLAMA_LABEL,
+    DEFAULT_OLLAMA_URL, DEFAULT_OPENCODE_LABEL, DEFAULT_OPENCODE_URL, DEFAULT_OVERLAY_WIDTH,
     DEFAULT_QUOTE_MAX_CONTEXT_LENGTH, DEFAULT_QUOTE_MAX_DISPLAY_CHARS,
     DEFAULT_QUOTE_MAX_DISPLAY_LINES, DEFAULT_SEARCH_NOTICE_ACKNOWLEDGED, DEFAULT_SYSTEM_CUSTOMIZED,
     DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TEXT_BASE_PX, DEFAULT_TEXT_FONT_WEIGHT,
     DEFAULT_TEXT_LETTER_SPACING_PX, DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TRACE_RETENTION_DAYS,
     DEFAULT_UPDATER_AUTO_CHECK, DEFAULT_UPDATER_CHECK_INTERVAL_HOURS, DEFAULT_UPDATER_MANIFEST_URL,
-    PROVIDER_ID_BUILTIN, PROVIDER_ID_OLLAMA, PROVIDER_KIND_BUILTIN, PROVIDER_KIND_OLLAMA,
-    PROVIDER_KIND_OPENAI,
+    PROVIDER_ID_BUILTIN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OLLAMA, PROVIDER_ID_OPENCODE,
+    PROVIDER_KIND_BUILTIN, PROVIDER_KIND_NVIDIA, PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI,
+    PROVIDER_KIND_OPENCODE,
 };
 
 /// A single configured inference provider. Exactly one is active at a time
@@ -94,9 +96,41 @@ pub fn openai_provider(id: &str, label: &str, base_url: &str) -> Provider {
     }
 }
 
-/// The default provider list: built-in first, then Ollama at localhost.
+/// The OpenCode Zen provider record. Remote, fixed id/label/URL; a user can
+/// still edit the base URL in Settings.
+pub fn opencode_provider() -> Provider {
+    Provider {
+        id: PROVIDER_ID_OPENCODE.to_string(),
+        kind: PROVIDER_KIND_OPENCODE.to_string(),
+        label: DEFAULT_OPENCODE_LABEL.to_string(),
+        base_url: DEFAULT_OPENCODE_URL.to_string(),
+        model: String::new(),
+        vision: false,
+    }
+}
+
+/// The NVIDIA NIM provider record. Remote, fixed id/label/URL; a user can
+/// still edit the base URL in Settings.
+pub fn nvidia_provider() -> Provider {
+    Provider {
+        id: PROVIDER_ID_NVIDIA.to_string(),
+        kind: PROVIDER_KIND_NVIDIA.to_string(),
+        label: DEFAULT_NVIDIA_LABEL.to_string(),
+        base_url: DEFAULT_NVIDIA_URL.to_string(),
+        model: String::new(),
+        vision: false,
+    }
+}
+
+/// The default provider list: built-in first, then Ollama at localhost, then
+/// the two remote hosted services (OpenCode Zen, NVIDIA NIM).
 pub fn default_providers() -> Vec<Provider> {
-    vec![builtin_provider(), ollama_provider(DEFAULT_OLLAMA_URL)]
+    vec![
+        builtin_provider(),
+        ollama_provider(DEFAULT_OLLAMA_URL),
+        opencode_provider(),
+        nvidia_provider(),
+    ]
 }
 
 /// Static, user-tunable inference configuration.

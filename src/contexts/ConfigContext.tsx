@@ -81,7 +81,8 @@ export interface AppConfig {
   inference: {
     /** Id of the active provider (e.g. `'ollama'`). */
     activeProvider: string;
-    /** Kind of the active provider (`'builtin' | 'ollama' | 'openai'`). */
+    /** Kind of the active provider (`'builtin' | 'ollama' | 'openai' |
+     * 'opencode' | 'nvidia'`). */
     activeProviderKind: string;
     /** Base URL of the Ollama provider, derived from the providers list. */
     ollamaUrl: string;

@@ -175,12 +175,21 @@ export const PICK_A_MODEL_MESSAGE =
   'Pick a model from the chip above to start chatting.';
 
 /**
+ * Provider kinds that are remote OpenAI-compatible `/v1` servers (`openai`,
+ * `opencode`, `nvidia`). They share one environment-message branch: reachable
+ * mirrors the builtin provider (errors surface at request time), and zero
+ * installed / none-active both route to Settings because the configured model
+ * is the only inventory a remote provider has.
+ */
+const REMOTE_V1_KINDS = new Set(['openai', 'opencode', 'nvidia']);
+
+/**
  * Picks the right environment-state message to render in
  * `CapabilityMismatchStrip`, or returns `null` when the environment is
  * healthy enough that a per-message capability gate should run instead.
  *
- * The matrix is provider-kind-aware so a builtin or openai user is never
- * told to start Ollama or run `ollama pull`:
+ * The matrix is provider-kind-aware so a builtin, openai, opencode, or nvidia
+ * user is never told to start Ollama or run `ollama pull`:
  *
  * - `ollama` (and any unknown kind, matching ConfigContext's fallback):
  *   - S1: Ollama unreachable. Returns the unreachable copy regardless of
@@ -194,9 +203,10 @@ export const PICK_A_MODEL_MESSAGE =
  *   call itself failed and the generic model-state copy is shown. Zero
  *   installed routes to the Settings download picker; none-active reuses the
  *   pick-a-model cue because the in-chat chips work for builtin models.
- * - `openai`: reachable mirrors builtin (errors surface at request time).
- *   Zero installed and none-active both route to Settings because the
- *   configured model is the only inventory an openai provider has.
+ * - `openai` / `opencode` / `nvidia`: remote `/v1` servers. Reachable mirrors
+ *   builtin (errors surface at request time). Zero installed and none-active
+ *   both route to Settings because the configured model is the only inventory
+ *   a remote provider has.
  *
  * `reachable` keeps the name `ollamaReachable` at the IPC boundary (the wire
  * key on `get_model_picker_state` is legacy camelCase); here it simply means
@@ -217,7 +227,7 @@ export function getEnvironmentMessage(
     if (!activeModel) return PICK_A_MODEL_MESSAGE;
     return null;
   }
-  if (providerKind === 'openai') {
+  if (REMOTE_V1_KINDS.has(providerKind)) {
     if (!ollamaReachable) return MODEL_STATE_UNAVAILABLE_MESSAGE;
     if (installedCount === 0 || !activeModel) return OPENAI_NO_MODEL_MESSAGE;
     return null;

@@ -1,9 +1,12 @@
 /**
- * Provider card bodies for the Providers pane's OpenAI-compatible provider.
+ * Provider card bodies for the Providers pane's remote OpenAI-compatible
+ * providers (`openai`, `opencode`, `nvidia`).
  *
- * - `OpenAiProviderCard`: editable label/base URL/model for the single
- *   OpenAI-compatible provider, write-only API key (Keychain), manual vision
- *   toggle, and removal with confirm.
+ * - `OpenAiProviderCard`: editable label/base URL/model, write-only API key
+ *   (Keychain), manual vision toggle, and removal with confirm. For the fixed
+ *   hosted services (`opencode` / `nvidia`) the label row and the remove
+ *   affordance are hidden: their label is seeded by the loader and removal is
+ *   pointless because the loader re-seeds them on the next load.
  * - `AddOpenAiProvider`: the inline "add a server" affordance shown while no
  *   OpenAI-compatible provider exists.
  *
@@ -18,6 +21,7 @@ import { SettingRow, Toggle } from '../components';
 import { configHelp } from '../configHelpers';
 import { describeConfigError } from '../types';
 import { isNonLocalUrl } from '../../utils/isNonLocalUrl';
+import { ModelSelect } from './models/ModelSelect';
 import styles from '../../styles/settings.module.css';
 import type { RawAppConfig, RawProvider } from '../types';
 
@@ -57,6 +61,12 @@ export function OpenAiProviderCard({
   const [hasKey, setHasKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+
+  // The fixed hosted services are seeded by the loader (label + URL) and
+  // re-seeded on every load, so their label is not user-editable and they
+  // cannot be removed; the card hides both surfaces for them.
+  const fixedRemoteV1 =
+    provider.kind === 'opencode' || provider.kind === 'nvidia';
 
   const prevTokenRef = useRef(resyncToken);
   if (prevTokenRef.current !== resyncToken) {
@@ -184,25 +194,27 @@ export function OpenAiProviderCard({
 
   return (
     <>
-      <SettingRow label="Label">
-        <input
-          type="text"
-          className={styles.input}
-          aria-label="Provider label"
-          value={label}
-          onFocus={() => {
-            labelFocusedRef.current = true;
-          }}
-          onChange={(e) => setLabel(e.target.value)}
-          onBlur={() => {
-            labelFocusedRef.current = false;
-            commitLabel();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-          }}
-        />
-      </SettingRow>
+      {!fixedRemoteV1 ? (
+        <SettingRow label="Label">
+          <input
+            type="text"
+            className={styles.input}
+            aria-label="Provider label"
+            value={label}
+            onFocus={() => {
+              labelFocusedRef.current = true;
+            }}
+            onChange={(e) => setLabel(e.target.value)}
+            onBlur={() => {
+              labelFocusedRef.current = false;
+              commitLabel();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            }}
+          />
+        </SettingRow>
+      ) : null}
 
       <SettingRow
         label="Base URL"
@@ -248,23 +260,13 @@ export function OpenAiProviderCard({
             No models reported by the server
           </span>
         ) : (
-          <select
-            className={styles.dropdown}
-            aria-label="OpenAI-compatible model"
+          <ModelSelect
             value={provider.model}
-            onChange={(e) => commitField('model', e.target.value, () => {})}
-          >
-            {provider.model === '' ? (
-              <option value="" disabled>
-                Choose a model
-              </option>
-            ) : null}
-            {modelOptions.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
+            items={modelOptions.map((m) => ({ id: m, label: m }))}
+            onChange={(id) => commitField('model', id, () => {})}
+            ariaLabel="OpenAI-compatible model"
+            placeholder={provider.model === '' ? 'Choose a model' : undefined}
+          />
         )}
       </SettingRow>
       {modelsError !== null ? (
@@ -335,37 +337,39 @@ export function OpenAiProviderCard({
         />
       </SettingRow>
 
-      <div className={styles.providerInlineRow}>
-        {confirmingRemove ? (
-          <>
-            <span className={styles.providerHint}>
-              Remove this provider? Its saved API key is deleted too.
-            </span>
-            <button
-              type="button"
-              className={`${styles.button} ${styles.buttonDestructive}`}
-              onClick={removeProvider}
-            >
-              Remove
-            </button>
+      {!fixedRemoteV1 ? (
+        <div className={styles.providerInlineRow}>
+          {confirmingRemove ? (
+            <>
+              <span className={styles.providerHint}>
+                Remove this provider? Its saved API key is deleted too.
+              </span>
+              <button
+                type="button"
+                className={`${styles.button} ${styles.buttonDestructive}`}
+                onClick={removeProvider}
+              >
+                Remove
+              </button>
+              <button
+                type="button"
+                className={`${styles.button} ${styles.buttonGhost}`}
+                onClick={() => setConfirmingRemove(false)}
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
             <button
               type="button"
               className={`${styles.button} ${styles.buttonGhost}`}
-              onClick={() => setConfirmingRemove(false)}
+              onClick={() => setConfirmingRemove(true)}
             >
-              Cancel
+              Remove provider
             </button>
-          </>
-        ) : (
-          <button
-            type="button"
-            className={`${styles.button} ${styles.buttonGhost}`}
-            onClick={() => setConfirmingRemove(true)}
-          >
-            Remove provider
-          </button>
-        )}
-      </div>
+          )}
+        </div>
+      ) : null}
     </>
   );
 }

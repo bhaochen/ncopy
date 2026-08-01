@@ -211,12 +211,12 @@ describe('OpenAiProviderCard', () => {
     });
     const onSaved = vi.fn();
     await renderCard({}, onSaved);
-    const select = screen.getByRole('combobox', {
+    const trigger = screen.getByRole('button', {
       name: 'OpenAI-compatible model',
-    }) as HTMLSelectElement;
-    expect(select.value).toBe('');
-    expect(screen.getByText('Choose a model')).toBeInTheDocument();
-    fireEvent.change(select, { target: { value: 'model-b' } });
+    });
+    expect(trigger).toHaveTextContent('Choose a model');
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('option', { name: 'model-b' }));
     await flush();
     expect(invokeMock).toHaveBeenCalledWith('update_provider_field', {
       providerId: 'openai',
@@ -250,10 +250,12 @@ describe('OpenAiProviderCard', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('connection refused');
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await flush();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'OpenAI-compatible model' }),
+    );
     expect(
-      screen.getByRole('combobox', { name: 'OpenAI-compatible model' }),
+      screen.getByRole('option', { name: 'model-x' }),
     ).toBeInTheDocument();
-    expect(screen.getByText('model-x')).toBeInTheDocument();
   });
 
   it('shows the empty-inventory hint when the server lists no models', async () => {
@@ -278,12 +280,15 @@ describe('OpenAiProviderCard', () => {
       has_provider_api_key: false,
     });
     await renderCard({ model: 'retired-model' });
-    const select = screen.getByRole('combobox', {
+    const trigger = screen.getByRole('button', {
       name: 'OpenAI-compatible model',
-    }) as HTMLSelectElement;
-    expect(select.value).toBe('retired-model');
-    expect(screen.getByText('retired-model')).toBeInTheDocument();
+    });
+    expect(trigger).toHaveTextContent('retired-model');
     expect(screen.queryByText('Choose a model')).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(
+      screen.getByRole('option', { name: 'retired-model' }),
+    ).toBeInTheDocument();
   });
 
   it('surfaces a model-commit failure inline', async () => {
@@ -296,10 +301,10 @@ describe('OpenAiProviderCard', () => {
       }),
     });
     await renderCard();
-    fireEvent.change(
-      screen.getByRole('combobox', { name: 'OpenAI-compatible model' }),
-      { target: { value: 'model-a' } },
+    fireEvent.click(
+      screen.getByRole('button', { name: 'OpenAI-compatible model' }),
     );
+    fireEvent.click(screen.getByRole('option', { name: 'model-a' }));
     await flush();
     expect(screen.getByText('Model write failed.')).toBeInTheDocument();
   });
@@ -469,14 +474,23 @@ describe('OpenAiProviderCard', () => {
     });
     render(<StatefulOpenAiCard />);
     await flush();
-    expect(screen.getByText('old-model')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'OpenAI-compatible model' }),
+    );
+    expect(screen.getByRole('option', { name: 'old-model' })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
     const url = screen.getByLabelText('OpenAI-compatible base URL');
     fireEvent.focus(url);
     fireEvent.change(url, { target: { value: 'http://127.0.0.1:9999' } });
     fireEvent.blur(url);
     await waitFor(() => expect(listCalls).toBe(2));
-    expect(screen.getByText('new-model')).toBeInTheDocument();
-    expect(screen.queryByText('old-model')).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'OpenAI-compatible model' }),
+    );
+    expect(screen.getByRole('option', { name: 'new-model' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('option', { name: 'old-model' }),
+    ).not.toBeInTheDocument();
   });
 
   it('ignores a stale model-list response that resolves after a newer one', async () => {
@@ -505,15 +519,24 @@ describe('OpenAiProviderCard', () => {
       lists.items[1].resolve(['new-model']);
       await Promise.resolve();
     });
-    expect(screen.getByText('new-model')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'OpenAI-compatible model' }),
+    );
+    expect(screen.getByRole('option', { name: 'new-model' })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
 
     // Stale earlier refresh settles late and must not overwrite the newer one.
     await act(async () => {
       lists.items[0].resolve(['old-model']);
       await Promise.resolve();
     });
-    expect(screen.queryByText('old-model')).not.toBeInTheDocument();
-    expect(screen.getByText('new-model')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'OpenAI-compatible model' }),
+    );
+    expect(
+      screen.queryByRole('option', { name: 'old-model' }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'new-model' })).toBeInTheDocument();
   });
 
   it('ignores a stale model-list rejection that settles after a newer success', async () => {
@@ -539,7 +562,10 @@ describe('OpenAiProviderCard', () => {
       lists.items[1].resolve(['new-model']);
       await Promise.resolve();
     });
-    expect(screen.getByText('new-model')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'OpenAI-compatible model' }),
+    );
+    expect(screen.getByRole('option', { name: 'new-model' })).toBeInTheDocument();
 
     // A late rejection from the superseded refresh must not surface an error
     // or clear the newer model list.
@@ -548,7 +574,7 @@ describe('OpenAiProviderCard', () => {
       await Promise.resolve();
     });
     expect(screen.queryByText('Couldn’t list models')).not.toBeInTheDocument();
-    expect(screen.getByText('new-model')).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'new-model' })).toBeInTheDocument();
   });
 
   it('reverts the base URL when the commit fails; unchanged URL never commits', async () => {
@@ -796,6 +822,49 @@ describe('OpenAiProviderCard', () => {
     expect(
       screen.getByRole('button', { name: 'Remove provider' }),
     ).toBeInTheDocument();
+  });
+
+  describe('fixed hosted services (opencode / nvidia)', () => {
+    // The fixed hosted services are seeded by the loader and re-seeded on
+    // every load, so their card hides the label editor and the remove
+    // affordance while keeping every other editable surface (base URL,
+    // model, API key, vision).
+    const fixedKinds: Array<[string, string]> = [
+      ['opencode', 'https://opencode.ai/zen/v1'],
+      ['nvidia', 'https://integrate.api.nvidia.com/v1'],
+    ];
+
+    for (const [kind, url] of fixedKinds) {
+      it(`${kind}: hides the label editor and remove affordance`, async () => {
+        mockCommands({
+          list_openai_models: [],
+          has_provider_api_key: false,
+        });
+        const view = await renderCard({
+          kind,
+          base_url: url,
+          model: 'model-x',
+          label: kind === 'opencode' ? 'OpenCode' : 'NVIDIA',
+        });
+        expect(
+          view.queryByRole('textbox', { name: 'Provider label' }),
+        ).not.toBeInTheDocument();
+        expect(
+          view.queryByRole('button', { name: 'Remove provider' }),
+        ).not.toBeInTheDocument();
+        // The remaining editable surfaces still render for a fixed service.
+        expect(
+          view.getByRole('textbox', { name: 'OpenAI-compatible base URL' }),
+        ).toHaveValue(url);
+        expect(
+          view.getByRole('button', { name: 'OpenAI-compatible model' }),
+        ).toHaveTextContent('model-x');
+        expect(
+          view.container.querySelector('input[type="password"]'),
+        ).not.toBeNull();
+        expect(view.getByRole('switch')).toBeInTheDocument();
+      });
+    }
   });
 });
 

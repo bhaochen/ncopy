@@ -96,8 +96,16 @@ function gb(bytes: number): string {
 function providerSubtitle(p: RawProvider): string {
   if (p.kind === 'builtin') return "Thuki's bundled llama.cpp engine";
   if (p.kind === 'ollama') return p.base_url || 'Local or remote Ollama';
+  if (p.kind === 'opencode') return p.base_url || 'OpenCode Zen hosted models';
+  if (p.kind === 'nvidia') return p.base_url || 'NVIDIA NIM hosted models';
   return p.base_url || 'OpenAI-compatible server';
 }
+
+// Remote OpenAI-compatible `/v1` provider kinds rendered with the shared
+// provider card (label/base URL/model/API key/vision). The user-added `openai`
+// kind stays behind the dev-only env gate; the fixed OpenCode / NVIDIA kinds
+// are always available.
+const REMOTE_V1_KINDS = new Set(['openai', 'opencode', 'nvidia']);
 
 export function ProvidersPane({
   config,
@@ -511,7 +519,9 @@ export function ProvidersPane({
           </>
         ) : null}
 
-        {activeProvider?.kind === 'openai' && openaiProviderEnabled ? (
+        {activeProvider &&
+        REMOTE_V1_KINDS.has(activeProvider.kind) &&
+        (activeProvider.kind !== 'openai' || openaiProviderEnabled) ? (
           <OpenAiProviderCard
             provider={activeProvider}
             resyncToken={resyncToken}

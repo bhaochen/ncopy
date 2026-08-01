@@ -236,6 +236,16 @@ describe('ModelPickerPanel', () => {
     expect(empty.textContent).not.toContain('ollama pull');
   });
 
+  it('routes opencode and nvidia users to the Settings provider model in the empty state', () => {
+    for (const kind of ['opencode', 'nvidia']) {
+      const { unmount } = renderPanel({ models: [], providerKind: kind });
+      const empty = screen.getByTestId('model-picker-empty');
+      expect(empty.textContent).toBe(OPENAI_NO_MODEL_MESSAGE);
+      expect(empty.textContent).not.toContain('ollama pull');
+      unmount();
+    }
+  });
+
   it('keeps the ollama-pull empty state when providerKind is ollama', () => {
     renderPanel({ models: [], providerKind: 'ollama' });
     const empty = screen.getByTestId('model-picker-empty');

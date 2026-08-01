@@ -192,7 +192,8 @@ pub fn resolve_chat_route(
     inference: &crate::config::schema::InferenceSection,
 ) -> Result<ChatRoute, EngineError> {
     use crate::config::defaults::{
-        PROVIDER_KIND_BUILTIN, PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI,
+        PROVIDER_KIND_BUILTIN, PROVIDER_KIND_NVIDIA, PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI,
+        PROVIDER_KIND_OPENCODE,
     };
     match inference.active_provider_kind() {
         PROVIDER_KIND_OLLAMA => Ok(ChatRoute::OllamaNative {
@@ -201,7 +202,10 @@ pub fn resolve_chat_route(
                 inference.active_provider_base_url().trim_end_matches('/')
             ),
         }),
-        PROVIDER_KIND_OPENAI => Ok(ChatRoute::V1 {
+        // openai / opencode / nvidia are all remote OpenAI-compatible /v1
+        // servers, so they share the V1 route. The api key comes from the
+        // Keychain under the active provider's id (opencode may carry none).
+        PROVIDER_KIND_OPENAI | PROVIDER_KIND_OPENCODE | PROVIDER_KIND_NVIDIA => Ok(ChatRoute::V1 {
             base_url: inference
                 .active_provider_base_url()
                 .trim_end_matches('/')
@@ -5364,6 +5368,27 @@ mod tests {
                 api_key_provider: Some("p1".to_string()),
             }
         );
+    }
+
+    #[test]
+    fn resolve_chat_route_opencode_and_nvidia() {
+        use crate::config::defaults::{PROVIDER_KIND_NVIDIA, PROVIDER_KIND_OPENCODE};
+        // The remote hosted providers are OpenAI-compatible /v1 servers: they
+        // route exactly like the openai kind, with the Keychain key resolved
+        // under the active provider's own id.
+        for (kind, url) in [
+            (PROVIDER_KIND_OPENCODE, "https://opencode.ai/zen/v1"),
+            (PROVIDER_KIND_NVIDIA, "https://integrate.api.nvidia.com/v1"),
+        ] {
+            let inference = inference_with_provider(kind, url, "model-x");
+            assert_eq!(
+                resolve_chat_route(&inference).unwrap(),
+                ChatRoute::V1 {
+                    base_url: url.to_string(),
+                    api_key_provider: Some("p1".to_string()),
+                }
+            );
+        }
     }
 
     #[test]

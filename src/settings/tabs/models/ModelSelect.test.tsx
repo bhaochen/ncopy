@@ -378,7 +378,7 @@ describe('ModelSelect', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
-  it('closes when the page scrolls or the window resizes', () => {
+  it('closes when the page scrolls or the window resizes', async () => {
     render(
       <ModelSelect
         value="a"
@@ -388,11 +388,39 @@ describe('ModelSelect', () => {
       />,
     );
     open();
+    // A scroll inside the settle window (a focus/repaint artifact fired in the
+    // instant after opening) must not dismiss the popover.
+    fireEvent.scroll(window);
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    // Once the popover has settled, a real scroll-into-view closes it.
+    await new Promise((r) => setTimeout(r, 160));
     fireEvent.scroll(window);
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+
     open();
+    // A resize inside the settle window is likewise ignored.
+    fireEvent.resize(window);
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 160));
     fireEvent.resize(window);
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+  });
+
+  it('keeps the popover open when its own model list scrolls', async () => {
+    render(
+      <ModelSelect
+        value="a"
+        items={RICH}
+        onChange={() => {}}
+        ariaLabel="Built-in model"
+      />,
+    );
+    open();
+    // Let the settle window pass, then scroll the popover's own list: that
+    // scroll stays anchored to the trigger and must not dismiss the popover.
+    await new Promise((r) => setTimeout(r, 160));
+    fireEvent.scroll(screen.getByRole('listbox'));
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
   });
 
   it('returns focus to the trigger on Escape and after a selection', () => {

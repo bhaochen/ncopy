@@ -36,10 +36,11 @@ use crate::config::defaults::{
     HF_API_TIMEOUT_SECS, HF_BASE_URL, HF_SEARCH_LIMIT_MAX, MAX_HF_API_BODY_BYTES,
     MAX_HF_SEARCH_QUERY_LEN, MAX_MODEL_CONTEXT_LENGTH, MAX_MODEL_SLUG_LEN,
     MAX_OLLAMA_SHOW_BODY_BYTES, MAX_OLLAMA_TAGS_BODY_BYTES, MAX_SPLIT_PARTS,
-    OPENAI_MODELS_TIMEOUT_SECS, PROVIDER_ID_BUILTIN, PROVIDER_KIND_BUILTIN, PROVIDER_KIND_OLLAMA,
-    PROVIDER_KIND_OPENAI, RUNTIME_OVERHEAD_GB,
+    OPENAI_MODELS_TIMEOUT_SECS, PROVIDER_ID_BUILTIN, PROVIDER_KIND_BUILTIN, PROVIDER_KIND_NVIDIA,
+    PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI, PROVIDER_KIND_OPENCODE, RUNTIME_OVERHEAD_GB,
 };
 use crate::config::AppConfig;
+use crate::openai::v1_endpoint;
 
 /// Legacy SQLite `app_config` key that older builds used to persist the
 /// selected model slug. Now read once at startup and folded onto the active
@@ -249,9 +250,10 @@ async fn fetch_installed_model_names_inner(
 /// - `builtin`: the manifest ids passed in by the caller, no network probe.
 ///   The engine starts on demand per request, so the inventory is always
 ///   trustworthy and `reachable` is always `true`.
-/// - `openai`: the provider's configured model as a single-element list
-///   (empty when none is configured yet). No probe either: errors surface
-///   at request time, and model management lives in Settings.
+/// - `openai` / `opencode` / `nvidia`: the provider's configured model as a
+///   single-element list (empty when none is configured yet). No probe either:
+///   errors surface at request time, and model management (browsing the live
+///   `/v1/models` catalog) lives in Settings.
 /// - anything else (Ollama): probes `{base_url}/api/tags`. A fetch failure
 ///   collapses into `(empty, false)` so the caller can emit the structured
 ///   unreachable payload instead of an error string.
@@ -267,7 +269,7 @@ pub async fn picker_inventory_for_kind(
 ) -> (Vec<String>, bool) {
     match kind {
         PROVIDER_KIND_BUILTIN => (builtin_installed.to_vec(), true),
-        PROVIDER_KIND_OPENAI => (
+        PROVIDER_KIND_OPENAI | PROVIDER_KIND_OPENCODE | PROVIDER_KIND_NVIDIA => (
             provider_model
                 .map(|m| vec![m.to_string()])
                 .unwrap_or_default(),
@@ -525,7 +527,9 @@ pub async fn set_active_model(
     let (ollama_url, active_id, persisted, kind) = read_provider_model_context(&config);
     let installed: Vec<String> = match kind.as_str() {
         PROVIDER_KIND_BUILTIN => manifest_model_ids(&db)?,
-        PROVIDER_KIND_OPENAI => persisted.into_iter().collect(),
+        PROVIDER_KIND_OPENAI | PROVIDER_KIND_OPENCODE | PROVIDER_KIND_NVIDIA => {
+            persisted.into_iter().collect()
+        }
         _ => fetch_installed_model_names(&client, &ollama_url).await?,
     };
     validate_model_installed(&model, &installed)?;
@@ -631,10 +635,11 @@ pub fn derive_builtin_setup_state(
     }
 }
 
-/// Defensive setup gate for an `openai`-kind active provider. Onboarding never
-/// sets one active, but if a hand-edited config does, a configured model is
-/// treated as Ready (there is no probe surface to verify against) and an
-/// unconfigured one falls back to the download picker.
+/// Defensive setup gate for a remote `/v1`-kind active provider (`openai`,
+/// `opencode`, `nvidia`). Onboarding never sets one active, but if a
+/// hand-edited config does, a configured model is treated as Ready (there is
+/// no probe surface to verify against) and an unconfigured one falls back to
+/// the download picker.
 pub fn derive_openai_setup_state(provider_model: Option<&str>) -> ModelSetupState {
     match provider_model {
         Some(model) => ModelSetupState::Ready {
@@ -713,7 +718,9 @@ pub async fn check_model_setup(
             let ids = manifest_model_ids(&db)?;
             derive_builtin_setup_state(persisted.as_deref(), &ids)
         }
-        PROVIDER_KIND_OPENAI => derive_openai_setup_state(persisted.as_deref()),
+        PROVIDER_KIND_OPENAI | PROVIDER_KIND_OPENCODE | PROVIDER_KIND_NVIDIA => {
+            derive_openai_setup_state(persisted.as_deref())
+        }
         _ => {
             let installed_result = fetch_installed_model_names(&client, &ollama_url).await;
             derive_model_setup_state(installed_result, persisted.as_deref())
@@ -1007,7 +1014,9 @@ pub async fn get_model_capabilities(
             cache_capabilities(&cache, &provider_id, &caps);
             Ok(caps)
         }
-        PROVIDER_KIND_OPENAI => {
+        // Remote /v1 providers expose no capability probe, so vision comes from
+        // the user-declared manual toggle (like the `openai` kind).
+        PROVIDER_KIND_OPENAI | PROVIDER_KIND_OPENCODE | PROVIDER_KIND_NVIDIA => {
             let caps = openai_capabilities(&provider_model, provider_vision);
             cache_capabilities(&cache, &provider_id, &caps);
             Ok(caps)
@@ -2483,15 +2492,35 @@ pub fn parse_openai_models(body: &[u8]) -> Result<Vec<String>, String> {
         .collect())
 }
 
-/// The configured OpenAI-compatible provider's `(id, base_url)`. Errors when
-/// no `openai`-kind provider exists so the UI shows a stable message instead
-/// of probing an empty URL.
+/// Resolves the remote `/v1` provider the model-listing UI targets: the
+/// ACTIVE provider when its kind is one of the remote `/v1` kinds (`openai`,
+/// `opencode`, `nvidia`), otherwise the first configured `openai`-kind
+/// provider. Returns the provider's `(id, base_url)`.
+///
+/// The Settings hero card that lists models only renders for the active
+/// provider, so the active-id-first rule keeps the dropdown pointing at the
+/// provider the user is actually configuring (e.g. OpenCode while an
+/// `openai`-kind provider also exists). Errors when no remote `/v1` provider
+/// exists so the UI shows a stable message instead of probing an empty URL.
 pub fn openai_provider_target(config: &AppConfig) -> Result<(String, String), String> {
+    let is_remote_v1 = |kind: &str| {
+        matches!(
+            kind,
+            PROVIDER_KIND_OPENAI | PROVIDER_KIND_OPENCODE | PROVIDER_KIND_NVIDIA
+        )
+    };
     config
         .inference
         .providers
         .iter()
-        .find(|p| p.kind == PROVIDER_KIND_OPENAI)
+        .find(|p| p.id == config.inference.active_provider && is_remote_v1(&p.kind))
+        .or_else(|| {
+            config
+                .inference
+                .providers
+                .iter()
+                .find(|p| is_remote_v1(&p.kind))
+        })
         .map(|p| (p.id.clone(), p.base_url.clone()))
         .ok_or_else(|| "no OpenAI-compatible provider is configured".to_string())
 }
@@ -2524,7 +2553,7 @@ async fn fetch_openai_models_inner(
     timeout: std::time::Duration,
     max_body_bytes: usize,
 ) -> Result<Vec<String>, String> {
-    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let url = v1_endpoint(base_url, "models");
     let mut request = client.get(&url).timeout(timeout);
     if let Some(key) = api_key {
         request = request.bearer_auth(key);
@@ -3495,6 +3524,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn picker_inventory_remote_v1_kinds_share_the_openai_arm() {
+        // opencode / nvidia behave exactly like openai: the configured model
+        // is the inventory and no probe runs (the unroutable URL would fail
+        // any probe, so a successful read proves the arm is probe-free).
+        for kind in [PROVIDER_KIND_OPENCODE, PROVIDER_KIND_NVIDIA] {
+            let client = reqwest::Client::new();
+            let (installed, reachable) = picker_inventory_for_kind(
+                &client,
+                kind,
+                "http://127.0.0.1:1",
+                Some("model-x"),
+                &[],
+            )
+            .await;
+            assert_eq!(installed, vec!["model-x".to_string()]);
+            assert!(reachable);
+        }
+    }
+
+    #[tokio::test]
     async fn picker_inventory_ollama_probes_tags_endpoint() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
@@ -4008,7 +4057,23 @@ mod tests {
     }
 
     #[test]
-    fn openai_provider_target_returns_id_and_base_url() {
+    fn openai_provider_target_falls_back_to_first_remote_v1() {
+        // Default config: builtin active, opencode/nvidia seeded. The active
+        // provider is not remote, so the fallback picks the first remote V1
+        // provider (opencode, which sorts before nvidia in the seed order).
+        let cfg = AppConfig::default();
+        assert_eq!(
+            openai_provider_target(&cfg).unwrap(),
+            (
+                crate::config::defaults::PROVIDER_ID_OPENCODE.to_string(),
+                crate::config::defaults::DEFAULT_OPENCODE_URL.to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn openai_provider_target_prefers_the_active_remote_provider() {
+        // Active openai-kind provider wins over the seeded opencode/nvidia.
         let mut cfg = AppConfig::default();
         cfg.inference
             .providers
@@ -4017,15 +4082,32 @@ mod tests {
                 "LM Studio",
                 "http://127.0.0.1:1234",
             ));
+        cfg.inference.active_provider = "openai".to_string();
         assert_eq!(
             openai_provider_target(&cfg).unwrap(),
             ("openai".to_string(), "http://127.0.0.1:1234".to_string())
+        );
+
+        // Active nvidia provider is targeted directly.
+        cfg.inference.active_provider = crate::config::defaults::PROVIDER_ID_NVIDIA.to_string();
+        assert_eq!(
+            openai_provider_target(&cfg).unwrap(),
+            (
+                crate::config::defaults::PROVIDER_ID_NVIDIA.to_string(),
+                crate::config::defaults::DEFAULT_NVIDIA_URL.to_string()
+            )
         );
     }
 
     #[test]
     fn openai_provider_target_errors_when_absent() {
-        let cfg = AppConfig::default();
+        // No remote V1 provider anywhere (defaults stripped down to the local
+        // pair): the stable error comes back.
+        let mut cfg = AppConfig::default();
+        cfg.inference.providers = vec![
+            crate::config::schema::builtin_provider(),
+            crate::config::schema::ollama_provider("http://127.0.0.1:11434"),
+        ];
         let err = openai_provider_target(&cfg).unwrap_err();
         assert!(err.contains("no OpenAI-compatible provider"));
     }

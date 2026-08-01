@@ -18,14 +18,16 @@ use super::defaults::{
     DEFAULT_AUTO_SAVE_CONVERSATIONS, DEFAULT_AUTO_SAVE_NOTICE_ACKNOWLEDGED, DEFAULT_AUTO_SEARCH,
     DEFAULT_DEBUG_TRACE_ENABLED, DEFAULT_HISTORY_RETENTION_DAYS,
     DEFAULT_KEEP_WARM_INACTIVITY_MINUTES, DEFAULT_MAX_CHAT_HEIGHT, DEFAULT_MAX_IMAGES,
-    DEFAULT_NUM_CTX, DEFAULT_OLLAMA_URL, DEFAULT_OVERLAY_WIDTH, DEFAULT_QUOTE_MAX_CONTEXT_LENGTH,
-    DEFAULT_QUOTE_MAX_DISPLAY_CHARS, DEFAULT_QUOTE_MAX_DISPLAY_LINES,
-    DEFAULT_SEARCH_NOTICE_ACKNOWLEDGED, DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TEXT_BASE_PX,
-    DEFAULT_TEXT_FONT_WEIGHT, DEFAULT_TEXT_LETTER_SPACING_PX, DEFAULT_TEXT_LINE_HEIGHT,
-    DEFAULT_TRACE_RETENTION_DAYS, DEFAULT_UPDATER_CHECK_INTERVAL_HOURS,
-    DEFAULT_UPDATER_MANIFEST_URL, HISTORY_RETENTION_FOREVER, PROVIDER_ID_BUILTIN,
-    PROVIDER_ID_OLLAMA, PROVIDER_KIND_BUILTIN, PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI,
-    SLASH_COMMAND_PROMPT_APPENDIX,
+    DEFAULT_NUM_CTX, DEFAULT_NVIDIA_LABEL, DEFAULT_NVIDIA_URL, DEFAULT_OLLAMA_URL,
+    DEFAULT_OPENCODE_LABEL, DEFAULT_OPENCODE_URL, DEFAULT_OVERLAY_WIDTH,
+    DEFAULT_QUOTE_MAX_CONTEXT_LENGTH, DEFAULT_QUOTE_MAX_DISPLAY_CHARS,
+    DEFAULT_QUOTE_MAX_DISPLAY_LINES, DEFAULT_SEARCH_NOTICE_ACKNOWLEDGED,
+    DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TEXT_BASE_PX, DEFAULT_TEXT_FONT_WEIGHT,
+    DEFAULT_TEXT_LETTER_SPACING_PX, DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TRACE_RETENTION_DAYS,
+    DEFAULT_UPDATER_CHECK_INTERVAL_HOURS, DEFAULT_UPDATER_MANIFEST_URL, HISTORY_RETENTION_FOREVER,
+    PROVIDER_ID_BUILTIN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OLLAMA, PROVIDER_ID_OPENCODE,
+    PROVIDER_KIND_BUILTIN, PROVIDER_KIND_NVIDIA, PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI,
+    PROVIDER_KIND_OPENCODE, SLASH_COMMAND_PROMPT_APPENDIX,
 };
 use super::error::ConfigError;
 use super::loader::{
@@ -34,8 +36,9 @@ use super::loader::{
 };
 use super::migrate::{attach_legacy_active_model, toml_has_providers};
 use super::schema::{
-    ollama_provider, openai_provider, AppConfig, BehaviorSection, DebugSection, InferenceSection,
-    PromptSection, Provider, QuoteSection, UpdaterSection, WindowSection,
+    nvidia_provider, ollama_provider, openai_provider, opencode_provider, AppConfig,
+    BehaviorSection, DebugSection, InferenceSection, PromptSection, Provider, QuoteSection,
+    UpdaterSection, WindowSection,
 };
 use super::writer::atomic_write;
 
@@ -300,6 +303,64 @@ fn expected_defaults_with_resolved_prompt() -> AppConfig {
     c.prompt.resolved_system =
         compose_system_prompt(DEFAULT_SYSTEM_PROMPT_BASE, SLASH_COMMAND_PROMPT_APPENDIX);
     c
+}
+
+#[test]
+fn load_persists_reseeded_hosted_providers_to_disk() {
+    // A pre-v0.16 file carries only the built-in and Ollama providers. The
+    // loader re-seeds the hosted services (OpenCode Zen, NVIDIA NIM) into
+    // memory; this test asserts they are ALSO persisted so the on-disk write
+    // commands (`set_active_provider`, `update_provider_field`, ...) validate
+    // against the same provider set memory sees. Without the persist, switching
+    // to a seeded provider fails its on-disk id check and silently never
+    // happens (the frontend swallows the error and keeps the old provider).
+    let dir = fresh_temp_dir();
+    let path = config_path_in(&dir);
+    std::fs::write(
+        &path,
+        r#"
+            [inference]
+            active_provider = "builtin"
+
+            [[inference.providers]]
+            id = "builtin"
+            kind = "builtin"
+            label = "Built-in"
+            base_url = ""
+            model = ""
+
+            [[inference.providers]]
+            id = "ollama"
+            kind = "ollama"
+            label = "Ollama"
+            base_url = "http://127.0.0.1:11434"
+            model = ""
+        "#,
+    )
+    .unwrap();
+
+    let provider_ids = |c: &AppConfig| -> Vec<String> {
+        c.inference
+            .providers
+            .iter()
+            .map(|p| p.id.clone())
+            .collect::<Vec<_>>()
+    };
+
+    let config = load_from_path(&path).unwrap();
+    assert_eq!(
+        provider_ids(&config),
+        vec!["builtin", "ollama", "opencode", "nvidia"]
+    );
+
+    // The reseeded list is durable: a fresh load from the rewritten file
+    // resolves the same providers, proving disk now matches memory and the
+    // persist does not loop (the second load sees no provider change).
+    let reloaded = load_from_path(&path).unwrap();
+    assert_eq!(
+        provider_ids(&reloaded),
+        vec!["builtin", "ollama", "opencode", "nvidia"]
+    );
 }
 
 // ── loader: corrupt file ────────────────────────────────────────────────────
@@ -1697,7 +1758,15 @@ fn inference_defaults_seed_builtin_and_ollama_providers() {
         .iter()
         .map(|p| p.id.as_str())
         .collect();
-    assert_eq!(ids, vec![PROVIDER_ID_BUILTIN, PROVIDER_ID_OLLAMA]);
+    assert_eq!(
+        ids,
+        vec![
+            PROVIDER_ID_BUILTIN,
+            PROVIDER_ID_OLLAMA,
+            PROVIDER_ID_OPENCODE,
+            PROVIDER_ID_NVIDIA
+        ]
+    );
     let ollama = c
         .inference
         .providers
@@ -1713,6 +1782,24 @@ fn inference_defaults_seed_builtin_and_ollama_providers() {
         .find(|p| p.id == PROVIDER_ID_BUILTIN)
         .unwrap();
     assert_eq!(builtin.base_url, "");
+    let opencode = c
+        .inference
+        .providers
+        .iter()
+        .find(|p| p.id == PROVIDER_ID_OPENCODE)
+        .unwrap();
+    assert_eq!(opencode.kind, PROVIDER_KIND_OPENCODE);
+    assert_eq!(opencode.label, DEFAULT_OPENCODE_LABEL);
+    assert_eq!(opencode.base_url, DEFAULT_OPENCODE_URL);
+    let nvidia = c
+        .inference
+        .providers
+        .iter()
+        .find(|p| p.id == PROVIDER_ID_NVIDIA)
+        .unwrap();
+    assert_eq!(nvidia.kind, PROVIDER_KIND_NVIDIA);
+    assert_eq!(nvidia.label, DEFAULT_NVIDIA_LABEL);
+    assert_eq!(nvidia.base_url, DEFAULT_NVIDIA_URL);
     assert_eq!(c.inference.legacy_ollama_url, None);
 }
 
@@ -1729,6 +1816,22 @@ fn provider_constructors_carry_expected_fields() {
     assert_eq!(o.kind, PROVIDER_KIND_OLLAMA);
     assert_eq!(o.base_url, "http://x:1");
     assert!(!o.vision);
+
+    let oc = opencode_provider();
+    assert_eq!(oc.id, PROVIDER_ID_OPENCODE);
+    assert_eq!(oc.kind, PROVIDER_KIND_OPENCODE);
+    assert_eq!(oc.label, DEFAULT_OPENCODE_LABEL);
+    assert_eq!(oc.base_url, DEFAULT_OPENCODE_URL);
+    assert!(oc.model.is_empty());
+    assert!(!oc.vision);
+
+    let nv = nvidia_provider();
+    assert_eq!(nv.id, PROVIDER_ID_NVIDIA);
+    assert_eq!(nv.kind, PROVIDER_KIND_NVIDIA);
+    assert_eq!(nv.label, DEFAULT_NVIDIA_LABEL);
+    assert_eq!(nv.base_url, DEFAULT_NVIDIA_URL);
+    assert!(nv.model.is_empty());
+    assert!(!nv.vision);
 }
 
 #[test]

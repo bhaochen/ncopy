@@ -63,6 +63,27 @@ pub enum OpenAiError {
     Cancelled,
 }
 
+// ─── URL joining ────────────────────────────────────────────────────────────
+
+/// Joins a `/v1` API path onto a provider base URL, returning a full endpoint
+/// like `{base}/v1/{path}`.
+///
+/// Thuki's stored convention is that `base_url` excludes the `/v1` prefix (an
+/// LM Studio URL is `http://127.0.0.1:1234`, and the client appends `/v1`).
+/// Some hosted providers document their base URL WITH the suffix (OpenCode Zen
+/// is `https://opencode.ai/zen/v1`, NVIDIA NIM is
+/// `https://integrate.api.nvidia.com/v1`). This helper accepts both forms so a
+/// documented URL pasted into Settings still resolves to the same endpoint.
+pub fn v1_endpoint(base_url: &str, path: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    let path = path.trim_start_matches('/');
+    if base.ends_with("/v1") {
+        format!("{base}/{path}")
+    } else {
+        format!("{base}/v1/{path}")
+    }
+}
+
 // ─── Wire types ──────────────────────────────────────────────────────────────
 
 /// `choices[i].delta` object in a `/v1/chat/completions` SSE event. Unknown
@@ -336,7 +357,7 @@ pub async fn stream_openai_chat(
     } = params;
     let body = chat_request_body(&model, &messages, flavor, enable_thinking);
     let mut request = client
-        .post(format!("{base_url}/v1/chat/completions"))
+        .post(v1_endpoint(&base_url, "chat/completions"))
         .json(&body);
     if let Some(ref key) = api_key {
         request = request.bearer_auth(key);
@@ -524,7 +545,7 @@ pub async fn request_openai_json(
 ) -> Result<String, OpenAiError> {
     let body = json_request_body(model, &messages, schema, max_tokens, flavor);
     let mut request = client
-        .post(format!("{base_url}/v1/chat/completions"))
+        .post(v1_endpoint(base_url, "chat/completions"))
         .json(&body)
         .timeout(std::time::Duration::from_secs(timeout_secs));
     if let Some(key) = api_key {
@@ -591,6 +612,37 @@ mod tests {
             flavor: V1Flavor::Remote,
             enable_thinking: false,
         }
+    }
+
+    // ── v1_endpoint ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn v1_endpoint_joins_suffixless_base() {
+        // Thuki's stored convention: base_url excludes `/v1`; the client
+        // appends it.
+        assert_eq!(
+            v1_endpoint("http://127.0.0.1:1234", "chat/completions"),
+            "http://127.0.0.1:1234/v1/chat/completions"
+        );
+        assert_eq!(
+            v1_endpoint("http://127.0.0.1:1234/", "models"),
+            "http://127.0.0.1:1234/v1/models"
+        );
+    }
+
+    #[test]
+    fn v1_endpoint_accepts_documented_v1_suffixed_base() {
+        // OpenCode Zen and NVIDIA NIM document their base URL WITH `/v1`; the
+        // helper must not double the suffix, and it must also tolerate a
+        // trailing slash.
+        assert_eq!(
+            v1_endpoint("https://opencode.ai/zen/v1", "chat/completions"),
+            "https://opencode.ai/zen/v1/chat/completions"
+        );
+        assert_eq!(
+            v1_endpoint("https://integrate.api.nvidia.com/v1/", "models"),
+            "https://integrate.api.nvidia.com/v1/models"
+        );
     }
 
     /// Helper: an SSE data line carrying a content delta.

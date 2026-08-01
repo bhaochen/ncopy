@@ -43,6 +43,22 @@ const OPENAI: RawProvider = {
   model: '',
   vision: false,
 };
+const OPENCODE: RawProvider = {
+  id: 'opencode',
+  kind: 'opencode',
+  label: 'OpenCode',
+  base_url: 'https://opencode.ai/zen/v1',
+  model: '',
+  vision: false,
+};
+const NVIDIA: RawProvider = {
+  id: 'nvidia',
+  kind: 'nvidia',
+  label: 'NVIDIA',
+  base_url: 'https://integrate.api.nvidia.com/v1',
+  model: '',
+  vision: false,
+};
 
 const INSTALLED = [
   {
@@ -460,6 +476,32 @@ describe('ProvidersPane active hero', () => {
       screen.getByRole('textbox', { name: 'Provider label' }),
     ).toBeInTheDocument();
   });
+
+  it('renders the OpenCode card in the hero when opencode is active', () => {
+    renderPane(makeConfig('opencode', [BUILTIN, OLLAMA, OPENAI, OPENCODE]));
+    expect(
+      screen.getByRole('textbox', { name: 'OpenAI-compatible base URL' }),
+    ).toHaveValue('https://opencode.ai/zen/v1');
+    // The hero subtitle carries the hosted URL.
+    expect(screen.getByText('https://opencode.ai/zen/v1')).toBeInTheDocument();
+    // Fixed services hide the editable label row.
+    expect(
+      screen.queryByRole('textbox', { name: 'Provider label' }),
+    ).toBeNull();
+  });
+
+  it('renders the NVIDIA card in the hero when nvidia is active', () => {
+    renderPane(makeConfig('nvidia', [BUILTIN, OLLAMA, OPENAI, NVIDIA]));
+    expect(
+      screen.getByRole('textbox', { name: 'OpenAI-compatible base URL' }),
+    ).toHaveValue('https://integrate.api.nvidia.com/v1');
+    expect(
+      screen.getByText('https://integrate.api.nvidia.com/v1'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('textbox', { name: 'Provider label' }),
+    ).toBeNull();
+  });
 });
 
 describe('ProvidersPane other providers', () => {
@@ -518,6 +560,48 @@ describe('ProvidersPane other providers', () => {
   it('shows the openai row in others when enabled, present, and not active', () => {
     renderPane(makeConfig('ollama', [BUILTIN, OLLAMA, OPENAI]));
     expect(screen.getByText('LM Studio')).toBeInTheDocument();
+  });
+
+  it('always shows the fixed hosted rows regardless of the dev flag', () => {
+    // OpenCode and NVIDIA are shipped providers, not gated behind the
+    // dev-only VITE_ENABLE_OPENAI_PROVIDER flag like the user-added openai
+    // kind. Empty base URLs render the generic hosted-service subtitles.
+    vi.stubEnv('VITE_ENABLE_OPENAI_PROVIDER', 'false');
+    renderPane(
+      makeConfig('builtin', [
+        BUILTIN,
+        OLLAMA,
+        OPENAI,
+        { ...OPENCODE, base_url: '' },
+        { ...NVIDIA, base_url: '' },
+      ]),
+    );
+    expect(screen.getByText('OpenCode Zen hosted models')).toBeInTheDocument();
+    expect(screen.getByText('NVIDIA NIM hosted models')).toBeInTheDocument();
+    // openai stays hidden while the flag is off.
+    expect(screen.queryByText('LM Studio')).toBeNull();
+  });
+
+  it('switches to a fixed hosted provider from the others list', async () => {
+    const onSaved = vi.fn();
+    const next = makeConfig('opencode', [BUILTIN, OLLAMA, OPENCODE]);
+    mockInvoke({ set_active_provider: next });
+    renderPane(makeConfig('ollama', [BUILTIN, OLLAMA, OPENCODE]), { onSaved });
+    const opencodeRow = screen
+      .getByText('OpenCode')
+      .closest('div') as HTMLElement;
+    fireEvent.click(
+      within(opencodeRow).getByRole('button', { name: 'Switch' }),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Switch to OpenCode/ }),
+    );
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('set_active_provider', {
+        providerId: 'opencode',
+      }),
+    );
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(next));
   });
 });
 
