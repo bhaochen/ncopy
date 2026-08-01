@@ -27,6 +27,21 @@ describe('WindowControls', () => {
     expect(decorativeDivs).toHaveLength(2);
   });
 
+  it('renders a Settings button and calls onSettings when provided', () => {
+    const onSettings = vi.fn();
+    render(<WindowControls onClose={vi.fn()} onSettings={onSettings} />);
+    const btn = screen.getByRole('button', { name: 'Settings' });
+    fireEvent.click(btn);
+    expect(onSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the Settings button when onSettings is omitted', () => {
+    render(<WindowControls onClose={vi.fn()} />);
+    expect(
+      screen.queryByRole('button', { name: 'Settings' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('close button blurs itself on programmatic focus (no relatedTarget)', () => {
     render(<WindowControls onClose={vi.fn()} />);
     const btn = screen.getByRole('button', { name: 'Close window' });

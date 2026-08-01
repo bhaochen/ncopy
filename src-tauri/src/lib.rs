@@ -971,6 +971,16 @@ fn open_settings_window(app_handle: tauri::AppHandle) {
     let _ = app_handle.emit(SETTINGS_SHOW_DISCOVER_EVENT, ());
 }
 
+/// Frontend entry point mirroring the tray "Settings…" item: opens the
+/// Settings window on whatever tab it last showed, with no deep-link. The
+/// titlebar gear and the tray both route here; unlike `open_settings_window`
+/// it never jumps to a specific pane.
+#[tauri::command]
+#[cfg_attr(coverage_nightly, coverage(off))]
+fn open_settings(app_handle: tauri::AppHandle) {
+    show_settings_window(&app_handle);
+}
+
 /// Opens the Settings window straight on the Models tab's Providers pane. The
 /// ask-bar "Ollama isn't running" strip links here from its "switch to Built-in"
 /// action so the user lands on the provider switcher and can flip the active
@@ -3224,6 +3234,7 @@ pub fn run() {
         onboarding_stage,
         is_builtin_announced,
         open_settings_window,
+        open_settings,
         open_settings_to_providers,
         open_settings_to_behavior,
         open_settings_to_behavior_auto_save,

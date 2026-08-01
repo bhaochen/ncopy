@@ -1070,6 +1070,14 @@ function App() {
   }, []);
 
   /**
+   * Opens the Settings window on whatever tab it last showed, mirroring the
+   * system tray "Settings…" item. Wired to the titlebar gear.
+   */
+  const handleOpenSettings = useCallback(() => {
+    void invoke('open_settings');
+  }, []);
+
+  /**
    * True when the window is near the screen bottom and should grow upward.
    * Flips the outer container to `justify-end` so content pins to the bottom.
    */
@@ -4488,6 +4496,7 @@ function App() {
                                   : undefined
                               }
                               isExportOpen={isExportOpen}
+                              onSettings={handleOpenSettings}
                               bookmarkButtonRef={bookmarkButtonRef}
                               saveButtonTestId="auto-save-bookmark"
                             />

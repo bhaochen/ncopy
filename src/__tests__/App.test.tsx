@@ -12120,4 +12120,40 @@ describe('App', () => {
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is listening');
     });
   });
+
+  describe('titlebar settings gear', () => {
+    it('opens Settings mirroring the tray item (no deep-link)', async () => {
+      enableChannelCaptureWithResponses({
+        get_model_picker_state: {
+          active: 'gemma4:e2b',
+          all: ['gemma4:e2b'],
+          ollamaReachable: true,
+        },
+      });
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      // Reach chat mode (the gear lives in the titlebar, which only renders
+      // once the window expands into the conversation view).
+      const textarea = getAskInput();
+      act(() => {
+        setAskValue('hello');
+      });
+      act(() => {
+        fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      });
+      await act(async () => {});
+      act(() => {
+        getLastChannel()?.simulateMessage({ type: 'Token', data: 'hi' });
+        getLastChannel()?.simulateMessage({ type: 'Done' });
+      });
+      await act(async () => {});
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+      });
+      expect(invoke).toHaveBeenCalledWith('open_settings');
+    });
+  });
 });
