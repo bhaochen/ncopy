@@ -704,7 +704,7 @@ pub const DEFAULT_UPDATER_MANIFEST_URL: &str =
 
 // Voice (read-aloud)
 /// Whether Thuki reads each finished assistant reply aloud via Edge TTS. The
-/// `/voice` slash command toggles this in place of a Settings row.
+/// `/live` slash command toggles this in place of a Settings row.
 pub const DEFAULT_VOICE_ENABLED: bool = false;
 /// Edge TTS voice name used for read-aloud. A natural Chinese female voice,
 /// matching the model's usual reply language for Chinese-speaking users.

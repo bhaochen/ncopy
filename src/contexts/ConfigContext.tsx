@@ -135,7 +135,7 @@ export interface AppConfig {
   voice: {
     /**
      * When true, each finished assistant reply is read aloud via Edge TTS
-     * (toggled with the `/voice` slash command).
+     * (toggled with the `/live` slash command).
      */
     enabled: boolean;
   };
@@ -144,7 +144,7 @@ export interface AppConfig {
 /**
  * Compiled default for `[voice].enabled` (mirrors `DEFAULT_VOICE_ENABLED` in
  * `src-tauri/src/config/defaults.rs`). Voice is off until the user toggles the
- * `/voice` slash command.
+ * `/live` slash command.
  */
 const DEFAULT_VOICE_ENABLED = false;
 

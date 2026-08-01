@@ -10,7 +10,7 @@ import { SeamlessLoopVideo } from './SeamlessLoopVideo';
  *   request take shape.
  * - `thinking`: a response is streaming from the engine.
  * - `live`: the mascot speaking the just-finished reply — the read-aloud
- *   audio (`/voice`) drives SoulX-FlashHead to a 512x512 talking-head video
+ *   audio (`/live`) drives SoulX-FlashHead to a 512x512 talking-head video
  *   that plays once.
  */
 export type MascotStageState = 'idle' | 'listening' | 'thinking' | 'live';
@@ -40,14 +40,16 @@ interface MascotStageProps {
   /** Which mascot animation is currently active. */
   state: MascotStageState;
   /**
-   * Asset URL of the current `live.mp4` (only meaningful while `state` is
-   * `live`). Plays once; `onLiveEnded` fires when it finishes.
+   * Asset URL of the current live segment (only meaningful while `state` is
+   * `live`). Plays once with its own audio track — the reply is heard through
+   * the video, not the speakers; `onLiveEnded` fires when it finishes and the
+   * host swaps in the next segment or returns to `idle`.
    */
   liveSrc?: string | null;
   /**
-   * Monotonic counter bumped on every live-ready event. Used as the live
-   * `<video>` key so a fresh clip (same output path, overwritten in place)
-   * rebuilds the element and replays instead of showing a stale frame.
+   * Monotonic counter bumped every time a new segment starts playing. Used as
+   * the live `<video>` key so the element rebuilds and replays instead of
+   * showing a stale frame.
    */
   liveKey?: number;
   /** Called when the `live` video reaches its end (return to `idle`). */
@@ -91,7 +93,6 @@ function MascotStageComponent({
               key={liveKey}
               src={liveSrc ?? undefined}
               autoPlay
-              muted
               playsInline
               onEnded={onLiveEnded}
               className="mascot-stage-live-video"

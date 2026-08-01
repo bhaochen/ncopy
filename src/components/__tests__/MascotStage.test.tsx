@@ -63,7 +63,9 @@ describe('MascotStage', () => {
     expect(video).toHaveAttribute('src', 'asset://localhost/live.mp4');
     expect(video.className).toBe('mascot-stage-live-video');
     expect(video.autoplay).toBe(true);
-    expect(video.muted).toBe(true);
+    // The reply is heard through the video's own audio track, not the
+    // speakers — the live panel is deliberately NOT muted.
+    expect(video.muted).toBe(false);
     expect(video.playsInline).toBe(true);
     // A talking-head clip plays once; the loop pair is not used.
     expect(video).not.toHaveAttribute('loop');

@@ -51,7 +51,7 @@ describe('messagesForCreateSave', () => {
         content: 'Voice on — replies will be read aloud.',
         statusOnly: true,
       }),
-      { ...user('u2', '/voice'), statusOnly: true },
+      { ...user('u2', '/live'), statusOnly: true },
       assistant('a2', { content: 'Voice off.', statusOnly: true }),
       user('u3'),
       assistant('a3', { content: 'real reply' }),

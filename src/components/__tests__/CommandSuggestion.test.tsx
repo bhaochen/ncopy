@@ -72,9 +72,9 @@ const EXTRACT_CMD = makeCommand(
   'Extract text from screenshots using macOS Vision OCR',
 );
 
-const VOICE_CMD = makeCommand(
-  '/voice',
-  'Toggle read-aloud of assistant replies (Edge TTS)',
+const LIVE_CMD = makeCommand(
+  '/live',
+  'Toggle the live mascot talking-head video for replies',
 );
 
 describe('CommandSuggestion', () => {
@@ -219,7 +219,7 @@ describe('CommandSuggestion', () => {
       BULLETS_CMD,
       ACTION_CMD,
       EXTRACT_CMD,
-      VOICE_CMD,
+      LIVE_CMD,
     ];
     const { container } = render(
       <CommandSuggestion
@@ -252,10 +252,10 @@ describe('CommandSuggestion', () => {
     expect(extractSvg?.innerHTML).not.toBe(screenSvg?.innerHTML);
   });
 
-  it('renders a distinct icon for /voice (not the screen monitor icon)', () => {
-    const { container: voiceContainer } = render(
+  it('renders a distinct icon for /live (not the screen monitor icon)', () => {
+    const { container: liveContainer } = render(
       <CommandSuggestion
-        commands={[VOICE_CMD]}
+        commands={[LIVE_CMD]}
         highlightedIndex={-1}
         onSelect={vi.fn()}
       />,
@@ -267,9 +267,9 @@ describe('CommandSuggestion', () => {
         onSelect={vi.fn()}
       />,
     );
-    const voiceSvg = voiceContainer.querySelector('svg');
+    const liveSvg = liveContainer.querySelector('svg');
     const screenSvg = screenContainer.querySelector('svg');
-    expect(voiceSvg?.innerHTML).not.toBe(screenSvg?.innerHTML);
+    expect(liveSvg?.innerHTML).not.toBe(screenSvg?.innerHTML);
   });
 
   it('renders a distinct icon for /search (not the screen monitor icon)', () => {

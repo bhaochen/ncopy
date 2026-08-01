@@ -131,7 +131,7 @@ auto_save_notice_acknowledged = false
 dismissed_memory_fit_models = []
 
 [voice]
-# Read every finished assistant reply aloud via Edge TTS. The /voice command
+# Read every finished assistant reply aloud via Edge TTS. The /live command
 # toggles this at runtime.
 enabled = false
 # Edge TTS voice name used for read-aloud.
@@ -313,11 +313,11 @@ Related: user behavior in [commands.md](./commands.md) and [privacy.md](./privac
 
 ### `[voice]`
 
-Read-aloud of assistant replies. Toggled at runtime by the `/voice` slash command; `enabled` is the switch it flips. When on, each finished reply is flattened to plain text and streamed to the free Microsoft Edge TTS endpoint, then played through the system audio device. The endpoint is reached over the same SSRF-safe egress pattern as web search, and failures are swallowed silently so a dead connection never stalls a turn.
+Read-aloud of assistant replies. Toggled at runtime by the `/live` slash command; `enabled` is the switch it flips. When on, each finished reply is flattened to plain text and streamed to the free Microsoft Edge TTS endpoint, then played through the system audio device. The endpoint is reached over the same SSRF-safe egress pattern as web search, and failures are swallowed silently so a dead connection never stalls a turn.
 
 | Field       | Default                | Tunable? | Why not tunable | Bounds   | Description                                                                                                                                                                                               |
 | :---------- | :--------------------- | :------- | :-------------- | :------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`   | `false`                | Yes      | n/a             | n/a      | Whether finished assistant replies are read aloud. `/voice` flips this; the in-chat confirmation turn is not itself spoken. |
+| `enabled`   | `false`                | Yes      | n/a             | n/a      | Whether finished assistant replies are read aloud. `/live` flips this; the in-chat confirmation turn is not itself spoken. |
 | `voice`     | `"zh-CN-XiaoxiaoNeural"` | Yes    | n/a             | n/a      | Edge TTS voice name used for read-aloud. Empty values are healed to the compiled default on load. |
 | `MAX_TTS_CHARS` | `1000`             | No       | Prompt contract: the truncation width is baked into `voice.rs`, and the frontend's `ttsReadableText` deliberately does not truncate so the backend stays the single source of truth. Exposing it would let the two layers drift. | — | How many characters of a reply are sent to the TTS endpoint. Longer replies are cut at the nearest word boundary; the read-aloud never blocks on an overlong reply. |
 

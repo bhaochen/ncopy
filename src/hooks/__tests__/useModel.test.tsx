@@ -2070,7 +2070,7 @@ describe('useModel', () => {
 
       act(() => {
         result.current.addStatusTurn(
-          '/voice',
+          '/live',
           'Voice on — replies will be read aloud.',
         );
       });
@@ -2078,7 +2078,7 @@ describe('useModel', () => {
       expect(result.current.messages).toHaveLength(2);
       expect(result.current.messages[0]).toMatchObject({
         role: 'user',
-        content: '/voice',
+        content: '/live',
         statusOnly: true,
       });
       expect(result.current.messages[1]).toMatchObject({
@@ -2093,7 +2093,7 @@ describe('useModel', () => {
       const { result } = renderHook(() => useModel('', onTurnComplete));
 
       act(() => {
-        result.current.addStatusTurn('/voice', 'Voice off.');
+        result.current.addStatusTurn('/live', 'Voice off.');
       });
 
       expect(onTurnComplete).not.toHaveBeenCalled();

@@ -226,14 +226,14 @@ Summarizes what a piece of text is about, then extracts every task, action item,
 
 ---
 
-## /voice
+## /live
 
-Toggles read-aloud. When on, every finished assistant reply is spoken aloud through Edge TTS (zero-setup, keyless).
+Toggles the live mascot. When on, every finished assistant reply drives a 512x512 talking-head video of the mascot speaking the reply (Edge TTS + SoulX-FlashHead, zero-setup, keyless).
 
-**Usage:** `/voice`
+**Usage:** `/live`
 
 **Examples:**
-- `/voice`: turns read-aloud on, so finished replies are spoken aloud
-- `/voice` again: turns read-aloud off
+- `/live`: turns the live mascot on, so finished replies are spoken by the mascot video
+- `/live` again: turns the live mascot off
 
-**Behavior:** Toggles read-aloud for assistant replies. When on, each finished reply is synthesized with Edge TTS and played through the system speakers. Toggling either way shows an in-chat confirmation (a status turn, never saved to history). The current state is stored in `[voice].enabled`. Does not trigger web search.
+**Behavior:** Toggles the live mascot for assistant replies. When on, each finished reply is synthesized with Edge TTS, transcoded to 16 kHz WAV, and streamed into SoulX-FlashHead to generate the talking-head video in segments; the video element carries both sight and sound, so nothing plays through the speakers. Toggling either way shows an in-chat confirmation (a status turn, never saved to history). The current state is stored in `[voice].enabled`. Does not trigger web search.

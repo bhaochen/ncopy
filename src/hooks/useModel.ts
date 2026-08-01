@@ -89,7 +89,7 @@ export interface Message {
   };
   /**
    * Marks both halves of a purely informational user/assistant turn (e.g. the
-   * `/voice` on/off confirmation). Status turns are rendered like any other
+   * `/live` on/off confirmation). Status turns are rendered like any other
    * chat turn but are excluded from history persistence and never trigger
    * read-aloud. `addStatusTurn` is the only producer.
    */
@@ -1206,7 +1206,7 @@ export function useModel(
   );
 
   /**
-   * Inserts a purely informational user/assistant turn (e.g. the `/voice`
+   * Inserts a purely informational user/assistant turn (e.g. the `/live`
    * on/off confirmation). Unlike `addOcrTurn` this deliberately does NOT call
    * `onTurnComplete`: status turns must never be persisted to history or read
    * aloud. Both messages carry `statusOnly`, which `conversationAutoSave` and

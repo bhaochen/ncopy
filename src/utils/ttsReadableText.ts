@@ -1,6 +1,6 @@
 /**
  * Converts assistant markdown into plain, speakable text for Edge TTS
- * read-aloud (`/voice`).
+ * read-aloud (`/live`).
  *
  * Read-aloud should not stumble over formatting: code blocks, inline code,
  * emphasis markers, link URLs, images, headings, list bullets, blockquotes,

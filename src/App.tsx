@@ -98,10 +98,19 @@ const ONBOARDING_EVENT = 'thuki://onboarding';
 const HISTORY_CLEARED_EVENT = 'thuki://history-cleared';
 
 /**
- * A fresh SoulX-FlashHead `live.mp4` (driven by the `/voice` read-aloud
- * audio) is ready; the payload is the file path to play via `convertFileSrc`.
+ * A playable SoulX-FlashHead segment (driven by the `/live` read-aloud
+ * audio) is ready; the payload is a `LiveSegmentPayload`. Segments of one
+ * `run` stream back-to-back; a newer `run` resets the queue.
  */
-const MASCOT_LIVE_READY_EVENT = 'thuki://mascot-live-ready';
+const MASCOT_LIVE_SEGMENT_EVENT = 'thuki://mascot-live-segment';
+/** The live pipeline errored or its resident process died; stop the show. */
+const MASCOT_LIVE_ERROR_EVENT = 'thuki://mascot-live-error';
+
+/** One playable live segment: `run` groups a read-aloud clip's segments. */
+interface LiveSegmentPayload {
+  run: number;
+  src: string;
+}
 
 /**
  * Strips control characters and enforces a length cap on externally-sourced
@@ -731,8 +740,8 @@ function App() {
   );
 
   /**
-   * Mirror of `config.voice.enabled` (`/voice` toggle), so the turn-completion
-   * read-aloud path and the `/voice` dispatch avoid a `config` dependency.
+   * Mirror of `config.voice.enabled` (`/live` toggle), so the turn-completion
+   * read-aloud path and the `/live` dispatch avoid a `config` dependency.
    */
   const voiceEnabledRef = useRef(false);
 
@@ -769,7 +778,7 @@ function App() {
             if (conversationIdRef.current == null) {
               // Merge final assistant fields into the live list: Done may race
               // React state for searchFailReason, so prefer onTurnComplete args.
-              // Status turns (`/voice` confirmations) are never persisted.
+              // Status turns (`/live` confirmations) are never persisted.
               const base = messagesRef.current.filter((m) => !m.statusOnly);
               // Stamp final assistant fields onto the live list. User rows stay
               // as-is; Done races only matter for the assistant payload.
@@ -851,7 +860,7 @@ function App() {
         void performReplaceRef.current?.(cleanForRender(assistantMsg.content));
       }
 
-      // `/voice` read-aloud: speak the finished reply through Edge TTS. Error
+      // `/live` read-aloud: speak the finished reply through Edge TTS. Error
       // callouts and empty replies are skipped; the markdown is flattened to
       // plain sentences first. Invokes chain on `ttsChainRef` so two finished
       // replies never overlap, and failures are swallowed so a dead Edge
@@ -1141,29 +1150,63 @@ function App() {
   const bookmarkButtonRef = useRef<HTMLButtonElement>(null);
 
   /**
-   * Live mascot clip: asset URL of the SoulX-FlashHead `live.mp4` the `/voice`
-   * read-aloud audio drove. When set (and no turn is generating) the stage
-   * plays it once, then clears back to `idle`. `liveVideoKey` bumps on every
-   * live-ready event so the `<video>` element rebuilds even though the output
-   * file is overwritten in place.
+   * Live mascot stream: the SoulX-FlashHead talking-head video is generated
+   * in segments (`thuki://mascot-live-segment`), each an mp4 with its own
+   * audio track — the reply is heard through the video element, not the
+   * speakers. Segments of one `run` play back-to-back; a newer `run` resets
+   * the queue. `liveSeq` bumps per played segment so the `<video>` rebuilds
+   * (fresh src + auto-play) instead of showing a stale frame.
    */
-  const [liveVideoSrc, setLiveVideoSrc] = useState<string | null>(null);
-  const [liveVideoKey, setLiveVideoKey] = useState(0);
+  const [liveQueue, setLiveQueue] = useState<LiveSegmentPayload[]>([]);
+  const [liveIdx, setLiveIdx] = useState(-1);
+  const [liveSeq, setLiveSeq] = useState(0);
+  const liveRunRef = useRef(0);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    void listen<string>(MASCOT_LIVE_READY_EVENT, (event) => {
-      setLiveVideoSrc(convertFileSrc(event.payload));
-      setLiveVideoKey((k) => k + 1);
+    void listen<LiveSegmentPayload>(MASCOT_LIVE_SEGMENT_EVENT, (event) => {
+      const { run, path } = event.payload as LiveSegmentPayload & {
+        path: string;
+      };
+      if (run !== liveRunRef.current) {
+        liveRunRef.current = run;
+        setLiveQueue([{ run, src: convertFileSrc(path) }]);
+        setLiveIdx(0);
+        setLiveSeq((s) => s + 1);
+      } else {
+        setLiveQueue((prev) => [...prev, { run, src: convertFileSrc(path) }]);
+      }
     }).then((fn) => {
       unlisten = fn;
     });
     return () => unlisten?.();
   }, []);
 
-  const handleLiveEnded = useCallback(() => {
-    setLiveVideoSrc(null);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<string>(MASCOT_LIVE_ERROR_EVENT, () => {
+      setLiveQueue([]);
+      setLiveIdx(-1);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
   }, []);
+
+  // The only thing the stage needs from the queue is the segment currently
+  // playing. `liveIdx >= 0` is kept consistent with `liveQueue.length` by
+  // every reducer below, so the index access is safe.
+  const liveVideoSrc = liveIdx >= 0 ? liveQueue[liveIdx].src : null;
+
+  const handleLiveEnded = useCallback(() => {
+    if (liveIdx + 1 < liveQueue.length) {
+      setLiveIdx(liveIdx + 1);
+      setLiveSeq((s) => s + 1);
+    } else {
+      setLiveQueue([]);
+      setLiveIdx(-1);
+    }
+  }, [liveIdx, liveQueue.length]);
 
   /**
    * Active mascot stage. `live` (the spoken reply playing back) outranks
@@ -3449,7 +3492,7 @@ function App() {
   }, [isExportOpen]);
 
   /**
-   * `/voice` read-aloud toggle. Local-only: flips `[voice].enabled` through
+   * `/live` read-aloud toggle. Local-only: flips `[voice].enabled` through
    * `set_config_field` (never touches the model), then shows an in-chat status
    * confirmation. The status turn is never persisted and never spoken. On a
    * failed write the ref is left untouched so the UI state matches the file.
@@ -3464,11 +3507,11 @@ function App() {
       });
       voiceEnabledRef.current = target;
       addStatusTurn(
-        '/voice',
+        '/live',
         target ? 'Voice on — replies will be read aloud.' : 'Voice off.',
       );
     } catch {
-      addStatusTurn('/voice', "Voice couldn't be toggled. Try again.");
+      addStatusTurn('/live', "Voice couldn't be toggled. Try again.");
     }
   }, [addStatusTurn]);
 
@@ -3504,11 +3547,11 @@ function App() {
       return;
     }
 
-    // `/voice` read-aloud toggle: standalone only (no combining with other
+    // `/live` read-aloud toggle: standalone only (no combining with other
     // commands). Local-only — flips `[voice].enabled` and never touches the
     // model — so it bypasses every capability/env gate below. The in-chat
     // confirmation is a status turn: not persisted, not spoken.
-    if (found.has('/voice') && found.size === 1) {
+    if (found.has('/live') && found.size === 1) {
       setQuery('');
       setSelectedContext(null);
       for (const img of attachedImages) {
@@ -4614,13 +4657,13 @@ function App() {
                             />
                           )}
                           {/* Mascot video stage - 512x512 lifecycle animation
-                    (idle / listening / thinking). Always visible at the top
-                    of the overlay so the mascot is the face of the app in
-                    both ask-bar and chat modes. */}
+                    (idle / listening / thinking / live). Always visible at
+                    the top of the overlay so the mascot is the face of the
+                    app in both ask-bar and chat modes. */}
                           <MascotStage
                             state={mascotStageState}
                             liveSrc={liveVideoSrc}
-                            liveKey={liveVideoKey}
+                            liveKey={liveSeq}
                             onLiveEnded={handleLiveEnded}
                           />
                           {/* Chat Messages Area - morphs in when in chat mode. */}

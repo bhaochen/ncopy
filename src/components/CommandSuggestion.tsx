@@ -332,7 +332,7 @@ const EXPLAIN_ICON = (
   </svg>
 );
 
-/** Speaker icon for the /voice read-aloud toggle. */
+/** Speaker icon for the /live mascot talking-head toggle. */
 const VOICE_ICON = (
   <svg
     width="14"
@@ -414,7 +414,7 @@ function iconForTrigger(trigger: string): React.ReactNode {
       return EXPLAIN_ICON;
     case '/extract':
       return EXTRACT_ICON;
-    case '/voice':
+    case '/live':
       return VOICE_ICON;
     default:
       return SCREEN_ICON;

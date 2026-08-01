@@ -1,11 +1,12 @@
-//! Edge TTS read-aloud backend (`/voice`).
+//! Edge TTS read-aloud backend (`/live`).
 //!
-//! Speaks each finished assistant reply aloud by synthesizing the text with
-//! Microsoft Edge's read-aloud service, then playing the MP3 through the
-//! platform player (`afplay` on macOS, `ffplay` elsewhere). The protocol is
-//! keyless and requires no user setup, exactly like the `node-edge-tts` npm
-//! package the reference `/voice` implementation uses — but implemented
-//! natively in Rust because a Tauri WebView cannot run Node.
+//! Speaks each finished assistant reply through the live mascot video: the
+//! text is synthesized with Microsoft Edge's read-aloud service, then
+//! transcoded and fed to SoulX-FlashHead so a talking-head video (with its
+//! own audio track) plays the reply instead of a bare speaker playback. The
+//! protocol is keyless and requires no user setup, exactly like the
+//! `node-edge-tts` npm package the reference `/live` implementation uses —
+//! but implemented natively in Rust because a Tauri WebView cannot run Node.
 //!
 //! Wire protocol (reverse-engineered from `node-edge-tts`):
 //! 1. Open a WSS to the Bing read-aloud endpoint. The `Sec-MS-GEC` query
@@ -27,7 +28,6 @@ use futures_util::{SinkExt, StreamExt};
 use sha2::{Digest, Sha256};
 use tauri::State;
 use tokio::io::AsyncWriteExt;
-use tokio::process::Command as TokioCommand;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -237,49 +237,13 @@ async fn synthesize(text: &str, voice: &str, out_path: &std::path::Path) -> Resu
         .map_err(|_| "voice: synthesis timed out".to_string())?
 }
 
-/// Plays an MP3 through the platform player. `afplay` ships with macOS;
-/// `ffplay` is the Linux fallback (part of ffmpeg).
-#[cfg_attr(coverage_nightly, coverage(off))]
-async fn play_audio(path: &std::path::Path) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    let args = {
-        let mut v = Vec::new();
-        v.push(path.to_string_lossy().into_owned());
-        v
-    };
-    #[cfg(not(target_os = "macos"))]
-    let args = {
-        vec![
-            "-nodisp".to_string(),
-            "-autoexit".to_string(),
-            "-loglevel".to_string(),
-            "quiet".to_string(),
-            path.to_string_lossy().into_owned(),
-        ]
-    };
-
-    #[cfg(target_os = "macos")]
-    let player = "afplay";
-    #[cfg(not(target_os = "macos"))]
-    let player = "ffplay";
-
-    let status = TokioCommand::new(player)
-        .args(&args)
-        .status()
-        .await
-        .map_err(|e| format!("voice: spawn {player}: {e}"))?;
-    if !status.success() {
-        return Err(format!("voice: {player} exited with {status}"));
-    }
-    Ok(())
-}
-
 /// Speaks `text` aloud. The frontend calls this with the plain-text version of
 /// a finished assistant reply; `[voice].enabled` is re-checked here as a
 /// last-line defense so a stale caller can never trigger audio while voice is
-/// off. After a successful playback the MP3 is handed to the live-mascot
-/// pipeline (SoulX-FlashHead) so the same audio drives a talking-head video;
-/// the pipeline owns the MP3 once handed off.
+/// off. The MP3 is transcoded and handed to the live-mascot pipeline
+/// (SoulX-FlashHead) so the audio drives a talking-head video instead of
+/// playing through the speakers directly — sight and sound arrive together
+/// from the video element.
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[cfg_attr(not(coverage), tauri::command)]
 pub async fn tts_speak(
@@ -301,20 +265,10 @@ pub async fn tts_speak(
         let _ = tokio::fs::remove_file(&temp).await;
         return Err(e);
     }
-    let result = play_audio(&temp).await;
-    match &result {
-        Ok(()) => {
-            eprintln!("[voice] played ok");
-            // Hand the MP3 to the live-video pipeline; it transcodes, runs
-            // SoulX-FlashHead, and deletes the file when done.
-            crate::mascot_live::trigger_live_generation(&app, &temp);
-        }
-        Err(e) => {
-            eprintln!("[voice] playback failed: {e}");
-            let _ = tokio::fs::remove_file(&temp).await;
-        }
-    }
-    result
+    // Hand the MP3 to the live-video pipeline; it transcodes to WAV, runs
+    // SoulX-FlashHead, and owns both files' cleanup from here on.
+    crate::mascot_live::trigger_live_generation(&app, &temp).await;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -437,8 +391,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "hits the live Edge TTS endpoint and plays audio; run explicitly"]
-    async fn live_synthesize_and_play() {
+    #[ignore = "hits the live Edge TTS endpoint; run explicitly"]
+    async fn live_synthesize() {
         let text = "你好,这是 Thuki 的声音测试。";
         let path = std::env::temp_dir().join("thuki-live-tts.mp3");
         synthesize(text, DEFAULT_VOICE_EDGE_VOICE, &path)
@@ -447,8 +401,6 @@ mod tests {
         let len = std::fs::metadata(&path).unwrap().len();
         println!("synthesized {len} bytes -> {}", path.display());
         assert!(len > 1000, "mp3 too small: {len}");
-        play_audio(&path).await.unwrap();
-        println!("played ok");
         let _ = std::fs::remove_file(&path);
     }
 }

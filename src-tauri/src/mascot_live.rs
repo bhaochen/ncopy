@@ -1,43 +1,70 @@
 //! Live mascot video: turns each read-aloud audio clip into a 512x512
-//! talking-head video via SoulX-FlashHead, played in the mascot stage's
-//! `live` state.
+//! talking-head video via SoulX-FlashHead, streamed to the mascot stage's
+//! `live` state *while it generates*.
 //!
-//! The TTS MP3 is transcoded to a 16 kHz mono WAV, fed to
-//! `generate_video.py` (distilled `lite` model, `public/girl.png` as the
-//! condition headshot), and the finished `live.mp4` is advertised to the
-//! frontend with a `mascot://live-ready` event carrying the file path; the
-//! frontend turns it into an asset URL and plays it once.
+//! A resident `stream_live.py` process loads the distilled `lite` model once
+//! (2 denoise steps so generation outruns the 25 fps playback on the 8 GB
+//! laptop 4060) and serves `generate` requests over a line protocol:
 //!
-//! Generation is serialized behind a managed mutex: a new clip that arrives
-//! while a generation is still running is dropped, because the GPU can run
-//! one inference at a time and the newest audio is the one the user is
-//! hearing. The whole pipeline is best-effort — a dead GPU, missing model,
-//! or failed transcode only logs, never fails the read-aloud turn itself.
+//! - Rust → Python: `{"cmd":"generate","wav":...,"out_dir":...,"run":N}\n`
+//! - Python → Rust: one JSON line per event: `ready` / `segment {run,path}` /
+//!   `done` / `error`.
+//!
+//! Each segment is an mp4 with its own AAC track (the 16 kHz audio slice that
+//! drove it), so the frontend plays sight *and* sound from the video element.
+//! The TTS MP3 is transcoded to a 16 kHz mono WAV first; the resident process
+//! deletes it once the generation consumes it. The whole pipeline is
+//! best-effort — a dead GPU or failed transcode only logs and emits an error
+//! event, never fails the read-aloud turn itself.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::process::Command as TokioCommand;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, Command as TokioCommand};
 use tokio::sync::Mutex;
 
-/// Frontend event fired when a fresh `live.mp4` is ready to play.
-pub const MASCOT_LIVE_READY_EVENT: &str = "thuki://mascot-live-ready";
-/// FlashHead model flavor: `lite` (distilled, ~96 FPS on a 4090) runs on the
-/// 8 GB laptop 4060; `pro` (20 sample steps) would take minutes per clip.
-const LIVE_MODEL_TYPE: &str = "lite";
-/// Model checkpoint dirs relative to the FlashHead project root.
-const FLASHHEAD_MODELS_DIR: &str = "models/SoulX-FlashHead-1_3B";
-const WAV2VEC_MODELS_DIR: &str = "models/wav2vec2-base-960h";
+/// Frontend event fired for every playable segment of the current live clip;
+/// the payload is a [`LiveSegment`].
+pub const MASCOT_LIVE_SEGMENT_EVENT: &str = "thuki://mascot-live-segment";
+/// Frontend event fired when the live pipeline errors or the resident process
+/// dies; the stage should drop back to `idle`.
+pub const MASCOT_LIVE_ERROR_EVENT: &str = "thuki://mascot-live-error";
 /// TTS audio is resampled to the mono 16 kHz the model expects.
 const LIVE_SAMPLE_RATE_HZ: &str = "16000";
 
-/// Global serialization lock: a `MutexGuard<'static, ()>` is what lets the
-/// spawned generation task own the lock while it runs. `try_lock` drops a
-/// generation that would have to wait behind an older one.
-fn live_generation_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+/// A playable segment of the current run: `run` groups segments of one
+/// read-aloud clip (bumped per generation), `path` is the mp4 to play.
+#[derive(Clone, Serialize)]
+pub struct LiveSegment {
+    pub run: u64,
+    pub path: String,
+}
+
+/// Resident streamer bookkeeping. The process is spawned lazily on first
+/// use; the `loading` flag tracks whether the model has reported `ready`.
+struct LiveStreamer {
+    child: Option<Child>,
+    stdin: Option<ChildStdin>,
+    run: u64,
+    loading: bool,
+}
+
+/// Global streamer state. A `MutexGuard<'static, LiveStreamer>` is what lets
+/// the spawned stdout-reader task mutate the shared state after the caller
+/// drops its guard.
+fn live_streamer_state() -> &'static Mutex<LiveStreamer> {
+    static STATE: OnceLock<Mutex<LiveStreamer>> = OnceLock::new();
+    STATE.get_or_init(|| {
+        Mutex::new(LiveStreamer {
+            child: None,
+            stdin: None,
+            run: 0,
+            loading: false,
+        })
+    })
 }
 
 /// SoulX-FlashHead project root (`~/Code/Llm/SoulX-FlashHead`).
@@ -47,6 +74,13 @@ pub fn flashhead_dir() -> PathBuf {
         .join("Code")
         .join("Llm")
         .join("SoulX-FlashHead")
+}
+
+/// The resident `stream_live.py` bundled with the app.
+fn stream_script_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("scripts")
+        .join("stream_live.py")
 }
 
 /// Condition headshot fed to SoulX-FlashHead. Prefers the app's
@@ -60,51 +94,12 @@ pub fn cond_image_path() -> PathBuf {
         .unwrap_or_else(|| flashhead_dir().join("examples").join("girl.png"))
 }
 
-/// Where generated live videos land (`app_data_dir/live/`).
+/// Where generated live segments land (`app_data_dir/live/`).
 pub fn live_output_dir(app: &AppHandle) -> PathBuf {
     app.path()
         .app_data_dir()
         .unwrap_or_else(|_| std::env::temp_dir())
         .join("live")
-}
-
-/// The fixed output path — every turn overwrites the same `live.mp4`.
-pub fn live_output_path(app: &AppHandle) -> PathBuf {
-    live_output_dir(app).join("live.mp4")
-}
-
-/// The `generate_video.py` argument list for `wav_path -> output`, as plain
-/// strings so it is unit-testable without constructing a `Command`.
-pub fn flashhead_args(output: &Path, wav_path: &Path) -> Vec<String> {
-    let project = flashhead_dir();
-    let owned = |p: PathBuf| p.to_string_lossy().into_owned();
-    vec![
-        "generate_video.py".to_string(),
-        "--ckpt_dir".to_string(),
-        owned(project.join(FLASHHEAD_MODELS_DIR)),
-        "--wav2vec_dir".to_string(),
-        owned(project.join(WAV2VEC_MODELS_DIR)),
-        "--model_type".to_string(),
-        LIVE_MODEL_TYPE.to_string(),
-        "--cond_image".to_string(),
-        owned(cond_image_path()),
-        "--audio_path".to_string(),
-        owned(wav_path.to_path_buf()),
-        "--audio_encode_mode".to_string(),
-        "stream".to_string(),
-        "--save_file".to_string(),
-        owned(output.to_path_buf()),
-    ]
-}
-
-/// The `generate_video.py` invocation turning `wav_path` into `output`.
-pub fn flashhead_command(output: &Path, wav_path: &Path) -> TokioCommand {
-    let project = flashhead_dir();
-    let mut cmd = TokioCommand::new(project.join(".venv").join("bin").join("python"));
-    cmd.current_dir(&project)
-        .args(flashhead_args(output, wav_path));
-    cmd.env("CUDA_VISIBLE_DEVICES", "0");
-    cmd
 }
 
 /// Transcodes the Edge TTS MP3 to the mono 16 kHz WAV FlashHead reads.
@@ -124,58 +119,155 @@ async fn transcode_to_wav(mp3: &Path, wav: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Runs one generation end-to-end, holding the serialization lock for its
-/// whole lifetime. Always cleans up the WAV and (once consumed) the MP3.
+/// The resident Python command: `stream_live.py` under the FlashHead venv,
+/// stdin/stdout piped for the line protocol.
 #[cfg_attr(coverage_nightly, coverage(off))]
-async fn run_generation(
-    app: AppHandle,
-    mp3_path: PathBuf,
-    _guard: tokio::sync::MutexGuard<'static, ()>,
-) {
-    let out_dir = live_output_dir(&app);
-    let _ = std::fs::create_dir_all(&out_dir);
-    let wav_path = out_dir.join("latest.wav");
+fn streamer_command() -> TokioCommand {
+    let mut cmd = TokioCommand::new(flashhead_dir().join(".venv").join("bin").join("python"));
+    cmd.arg(stream_script_path());
+    cmd.stdin(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.env("CUDA_VISIBLE_DEVICES", "0");
+    cmd
+}
 
-    if let Err(e) = transcode_to_wav(&mp3_path, &wav_path).await {
-        eprintln!("[live] transcode failed: {e}");
-        let _ = std::fs::remove_file(&mp3_path);
+/// Tears the resident process down (EOF on stdout, or a fatal load error).
+async fn reset_streamer() {
+    let mut state = live_streamer_state().lock().await;
+    if let Some(mut child) = state.child.take() {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
+    state.stdin = None;
+    state.loading = false;
+}
+
+/// Handles one stdout line from the resident process, forwarding segments and
+/// surfacing errors to the frontend.
+async fn handle_streamer_line(app: &AppHandle, line: &str) {
+    let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) else {
         return;
-    }
-
-    let output = flashhead_command(&live_output_path(&app), &wav_path)
-        .output()
-        .await;
-    match output {
-        Ok(out) if out.status.success() => {
-            let path = live_output_path(&app);
-            eprintln!("[live] generated {}", path.display());
-            let _ = app.emit(MASCOT_LIVE_READY_EVENT, path.to_string_lossy().to_string());
+    };
+    match msg.get("event").and_then(|e| e.as_str()) {
+        Some("ready") => {
+            live_streamer_state().lock().await.loading = false;
         }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let tail: String = stderr.lines().rev().take(8).collect::<Vec<_>>().join("\n");
-            eprintln!("[live] generation failed: {tail}");
+        Some("segment") => {
+            let (Some(run), Some(path)) = (
+                msg.get("run").and_then(|r| r.as_u64()),
+                msg.get("path").and_then(|p| p.as_str()),
+            ) else {
+                return;
+            };
+            let _ = app.emit(
+                MASCOT_LIVE_SEGMENT_EVENT,
+                LiveSegment {
+                    run,
+                    path: path.to_string(),
+                },
+            );
         }
-        Err(e) => eprintln!("[live] spawn generate_video.py failed: {e}"),
+        Some("done") => {
+            // Generation consumed the wav; nothing else to forward.
+        }
+        Some("error") => {
+            let msg = msg
+                .get("msg")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown error");
+            eprintln!("[live] streamer error: {msg}");
+            // A load error kills the service; drop it so the next request
+            // respawns it. Per-run errors leave the process alive.
+            if msg.starts_with("load:") {
+                reset_streamer().await;
+            }
+            let _ = app.emit(MASCOT_LIVE_ERROR_EVENT, msg.to_string());
+        }
+        _ => {}
     }
+}
 
-    let _ = std::fs::remove_file(&wav_path);
-    let _ = std::fs::remove_file(&mp3_path);
+/// Spawns the resident process if needed and starts the stdout reader. The
+/// reader marks the process dead on EOF so the next request respawns it.
+#[cfg_attr(coverage_nightly, coverage(off))]
+async fn ensure_streamer(app: &AppHandle) -> Result<(), String> {
+    let mut state = live_streamer_state().lock().await;
+    if state.child.is_some() {
+        return Ok(());
+    }
+    let mut child = streamer_command()
+        .spawn()
+        .map_err(|e| format!("live: spawn streamer: {e}"))?;
+    let stdin = child.stdin.take().ok_or("live: no stdin")?;
+    let stdout = child.stdout.take().ok_or("live: no stdout")?;
+    state.child = Some(child);
+    state.stdin = Some(stdin);
+    state.loading = true;
+
+    let app = app.clone();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        loop {
+            match reader.next_line().await {
+                Ok(Some(line)) => handle_streamer_line(&app, &line).await,
+                Ok(None) => break,
+                Err(_) => break,
+            }
+        }
+        // EOF: the process died. Clear state and tell the frontend the live
+        // show is over (next request respawns the streamer).
+        reset_streamer().await;
+        let _ = app.emit(MASCOT_LIVE_ERROR_EVENT, "streamer exited".to_string());
+    });
+    Ok(())
 }
 
 /// Kicks off live-video generation for a finished read-aloud clip, taking
-/// ownership of the MP3 lifecycle. No-ops (and deletes the MP3) when voice is
-/// off or a generation is already running.
+/// ownership of the WAV lifecycle (the resident process deletes it once
+/// consumed). Serialized by the streamer's single-threaded request loop.
 #[cfg_attr(coverage_nightly, coverage(off))]
-pub fn trigger_live_generation(app: &AppHandle, mp3_path: &Path) {
-    let Ok(guard) = live_generation_lock().try_lock() else {
-        eprintln!("[live] generation already running; dropping new clip");
+pub async fn start_live_generation(app: &AppHandle, wav_path: &Path) -> Result<(), String> {
+    ensure_streamer(app).await?;
+    let mut state = live_streamer_state().lock().await;
+    state.run += 1;
+    let run = state.run;
+    let request = serde_json::json!({
+        "cmd": "generate",
+        "wav": wav_path.to_string_lossy().into_owned(),
+        "out_dir": live_output_dir(app).to_string_lossy().into_owned(),
+        "run": run,
+    })
+    .to_string();
+    let stdin = state.stdin.as_mut().ok_or("live: streamer stdin closed")?;
+    stdin
+        .write_all(request.as_bytes())
+        .await
+        .map_err(|e| format!("live: write request: {e}"))?;
+    stdin
+        .write_all(b"\n")
+        .await
+        .map_err(|e| format!("live: write request: {e}"))?;
+    Ok(())
+}
+
+/// Transcodes `mp3` to a uniquely-named 16 kHz WAV and hands it to the
+/// resident streamer. Returns the wav path on success (deleted by the
+/// streamer when consumed).
+#[cfg_attr(coverage_nightly, coverage(off))]
+pub async fn trigger_live_generation(app: &AppHandle, mp3_path: &Path) {
+    let out_dir = live_output_dir(app);
+    let _ = std::fs::create_dir_all(&out_dir);
+    let wav_path = out_dir.join(format!("live-{}.wav", uuid::Uuid::new_v4()));
+    if let Err(e) = transcode_to_wav(mp3_path, &wav_path).await {
+        eprintln!("[live] transcode failed: {e}");
         let _ = std::fs::remove_file(mp3_path);
         return;
-    };
-    let app = app.clone();
-    let mp3_path = mp3_path.to_path_buf();
-    tokio::spawn(run_generation(app, mp3_path, guard));
+    }
+    let _ = std::fs::remove_file(mp3_path);
+    if let Err(e) = start_live_generation(app, &wav_path).await {
+        eprintln!("[live] start generation failed: {e}");
+        let _ = std::fs::remove_file(&wav_path);
+    }
 }
 
 #[cfg(test)]
@@ -190,25 +282,26 @@ mod tests {
 
     #[test]
     fn cond_image_path_resolves_to_an_existing_file() {
-        // Either the app's public/girl.png or the FlashHead example exists on
-        // the dev machine.
         let path = cond_image_path();
         assert!(path.is_file(), "cond image must exist at {path:?}");
         assert_eq!(path.file_name().unwrap(), "girl.png");
     }
 
     #[test]
-    fn flashhead_args_name_the_lite_model_and_girl_cond_image() {
-        let args = flashhead_args(Path::new("/out/live.mp4"), Path::new("/tmp/tts.wav"));
-        let pos = |needle: &str| args.iter().position(|a| a == needle).unwrap();
-        assert_eq!(args[pos("--model_type") + 1], "lite");
-        assert_eq!(
-            args[pos("--cond_image") + 1],
-            cond_image_path().to_string_lossy().into_owned()
-        );
-        assert_eq!(args[pos("--audio_path") + 1], "/tmp/tts.wav");
-        assert_eq!(args[pos("--save_file") + 1], "/out/live.mp4");
-        assert!(args.iter().any(|a| a == "--audio_encode_mode"));
-        assert!(args[pos("--ckpt_dir") + 1].ends_with("SoulX-FlashHead-1_3B"));
+    fn stream_script_path_resolves_beside_the_binary() {
+        let path = stream_script_path();
+        assert!(path.ends_with("src-tauri/scripts/stream_live.py"));
+        assert!(path.is_file(), "bundled script must exist at {path:?}");
+    }
+
+    #[test]
+    fn live_segment_serializes_run_and_path() {
+        let json = serde_json::to_string(&LiveSegment {
+            run: 3,
+            path: "/tmp/seg_3_0000.mp4".to_string(),
+        })
+        .unwrap();
+        assert!(json.contains("\"run\":3"));
+        assert!(json.contains("\"path\":\"/tmp/seg_3_0000.mp4\""));
     }
 }

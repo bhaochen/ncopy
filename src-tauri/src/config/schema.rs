@@ -444,7 +444,7 @@ impl Default for UpdaterSection {
     }
 }
 
-/// Read-aloud (Edge TTS) configuration, toggled by the `/voice` slash command.
+/// Read-aloud (Edge TTS) configuration, toggled by the `/live` slash command.
 ///
 /// When `enabled`, Thuki speaks each finished assistant reply aloud using
 /// Microsoft Edge's read-aloud service (no extra setup, keyless). The voice is

@@ -12121,7 +12121,7 @@ describe('App', () => {
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is listening');
     });
 
-    it('plays the live mascot video when a live-ready event arrives', async () => {
+    it('plays the live mascot video when a live segment arrives', async () => {
       render(<App />);
       await act(async () => {});
       await showOverlay();
@@ -12129,7 +12129,10 @@ describe('App', () => {
       const mascot = screen.getByTestId('mascot-stage');
 
       act(() => {
-        emitTauriEvent('thuki://mascot-live-ready', '/tmp/thuki/live.mp4');
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live.mp4',
+        });
       });
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
@@ -12144,7 +12147,95 @@ describe('App', () => {
       );
     });
 
-    it('returns to idle when the live video ends', async () => {
+    it('plays queued segments back-to-back then returns to idle', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-2.mp4',
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      const first = document.querySelector('video.mascot-stage-live-video')!;
+      expect(first).toHaveAttribute(
+        'src',
+        convertFileSrc('/tmp/thuki/live-1.mp4'),
+      );
+
+      // The first segment ends → the queued second segment rebuilds the video
+      // element (liveKey bump) and plays next.
+      fireEvent.ended(first);
+      await act(async () => {});
+      const second = document.querySelector('video.mascot-stage-live-video')!;
+      expect(second).not.toBe(first);
+      expect(second).toHaveAttribute(
+        'src',
+        convertFileSrc('/tmp/thuki/live-2.mp4'),
+      );
+
+      // The last segment ends → nothing left in the queue → idle.
+      fireEvent.ended(second);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+    });
+
+    it('a newer run resets the queue to its first segment', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-2.mp4',
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      // A fresh generation's first segment supersedes the stale queue even
+      // mid-playback.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 2,
+          path: '/tmp/thuki/live-new.mp4',
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const video = document.querySelector('video.mascot-stage-live-video')!;
+      expect(video).toHaveAttribute(
+        'src',
+        convertFileSrc('/tmp/thuki/live-new.mp4'),
+      );
+
+      // The stale segments are gone: ending the new first segment has nothing
+      // to continue into (the old live-2 was discarded with the reset).
+      fireEvent.ended(video);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+    });
+
+    it('a live error clears the stage back to idle', async () => {
       render(<App />);
       await act(async () => {});
       await showOverlay();
@@ -12155,15 +12246,54 @@ describe('App', () => {
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
 
       act(() => {
-        emitTauriEvent('thuki://mascot-live-ready', '/tmp/thuki/live.mp4');
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live.mp4',
+        });
       });
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
 
-      const liveVideo = document.querySelector(
-        'video.mascot-stage-live-video',
-      )!;
-      fireEvent.ended(liveVideo);
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-error', 'streamer exited');
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+    });
+
+    it('a live error mid-queue leaves the stage idle without crashing', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-2.mp4',
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      // An error arrives before the player finishes the first segment; the
+      // queue must drain cleanly and the stage report idle without throwing.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-error', 'streamer crashed');
+      });
+      await act(async () => {});
+
+      // After draining, the live panel is the single source of `liveVideoSrc`;
+      // the ?. fallback must not throw when liveIdx is back to -1.
+      const video = document.querySelector('video.mascot-stage-live-video');
+      expect(video).not.toBeNull();
+      fireEvent.ended(video as HTMLVideoElement);
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
     });
@@ -12175,7 +12305,10 @@ describe('App', () => {
 
       const mascot = screen.getByTestId('mascot-stage');
       act(() => {
-        emitTauriEvent('thuki://mascot-live-ready', '/tmp/thuki/live.mp4');
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live.mp4',
+        });
       });
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
@@ -12240,7 +12373,7 @@ describe('App', () => {
     });
   });
 
-  describe('voice read-aloud (/voice)', () => {
+  describe('voice read-aloud (/live)', () => {
     const VOICE_ON_CONFIG = {
       ...DEFAULT_CONFIG,
       voice: { enabled: true },
@@ -12254,14 +12387,14 @@ describe('App', () => {
       );
     }
 
-    it('toggles voice on with /voice and shows an in-chat confirmation', async () => {
+    it('toggles voice on with /live and shows an in-chat confirmation', async () => {
       render(voiceTree(DEFAULT_CONFIG));
       await act(async () => {});
       await showOverlay();
 
       invoke.mockClear();
       const textarea = getAskInput();
-      setAskValue('/voice');
+      setAskValue('/live');
       fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
       await act(async () => {});
 
@@ -12275,14 +12408,14 @@ describe('App', () => {
       ).toBeInTheDocument();
     });
 
-    it('toggles voice off with /voice from an enabled config', async () => {
+    it('toggles voice off with /live from an enabled config', async () => {
       render(voiceTree(VOICE_ON_CONFIG));
       await act(async () => {});
       await showOverlay();
 
       invoke.mockClear();
       const textarea = getAskInput();
-      setAskValue('/voice');
+      setAskValue('/live');
       fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
       await act(async () => {});
 
@@ -12315,7 +12448,7 @@ describe('App', () => {
           : Promise.resolve(undefined);
       });
       const textarea = getAskInput();
-      setAskValue('/voice');
+      setAskValue('/live');
       fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
       await act(async () => {});
 
@@ -12324,13 +12457,13 @@ describe('App', () => {
       ).toBeInTheDocument();
     });
 
-    it('does not treat /voice as a model turn (no ask_model)', async () => {
+    it('does not treat /live as a model turn (no ask_model)', async () => {
       render(voiceTree(DEFAULT_CONFIG));
       await act(async () => {});
       await showOverlay();
 
       invoke.mockClear();
-      setAskValue('/voice');
+      setAskValue('/live');
       fireEvent.keyDown(getAskInput(), { key: 'Enter', shiftKey: false });
       await act(async () => {});
 
@@ -12339,7 +12472,7 @@ describe('App', () => {
       ).toHaveLength(0);
     });
 
-    it('clears attached images when /voice toggles', async () => {
+    it('clears attached images when /live toggles', async () => {
       enableChannelCaptureWithResponses({
         save_image_command: '/tmp/staged/img1.jpg',
       });
@@ -12369,7 +12502,7 @@ describe('App', () => {
       revokeSpy.mockClear();
       invoke.mockClear();
 
-      setAskValue('/voice');
+      setAskValue('/live');
       fireEvent.keyDown(getAskInput(), { key: 'Enter', shiftKey: false });
       await act(async () => {});
 
@@ -12532,13 +12665,13 @@ describe('App', () => {
       ).toHaveLength(0);
     });
 
-    it('does not speak status turns from /voice itself', async () => {
+    it('does not speak status turns from /live itself', async () => {
       render(voiceTree(VOICE_ON_CONFIG));
       await act(async () => {});
       await showOverlay();
 
       invoke.mockClear();
-      setAskValue('/voice');
+      setAskValue('/live');
       fireEvent.keyDown(getAskInput(), { key: 'Enter', shiftKey: false });
       await act(async () => {});
 
