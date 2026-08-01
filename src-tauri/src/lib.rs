@@ -22,6 +22,7 @@ pub mod engine;
 pub mod export;
 pub mod history;
 pub mod images;
+pub mod mascot_live;
 pub mod models;
 pub mod net;
 pub mod ocr;

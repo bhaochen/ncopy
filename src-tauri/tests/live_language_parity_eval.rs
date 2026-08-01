@@ -290,7 +290,7 @@ async fn run_measurements_2_and_3(base_url: &str, model_label: &str) {
         rows.len()
     );
     for row in &rows {
-        let Some(want_lang) = true_lang(&row) else {
+        let Some(want_lang) = true_lang(row) else {
             eprintln!(
                 "  SKIP (no known lang prefix): {} :: {}",
                 row.category, row.message

@@ -593,7 +593,7 @@ mod tests {
     #[test]
     fn primary_price_reads_thin_space_thousands_and_commas() {
         // U+202F thin space (common in writer/source paste) + EN comma groups.
-        let thin = format!("mua 144\u{202f}500\u{202f}000 bán");
+        let thin = "mua 144\u{202f}500\u{202f}000 bán".to_string();
         assert_eq!(primary_price_value(&thin), Some(144_500_000.0));
         assert_eq!(primary_price_value("spot 1,234,567 USD"), Some(1_234_567.0));
         assert_eq!(primary_price_value("only 9"), None);

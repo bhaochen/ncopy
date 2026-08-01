@@ -597,10 +597,11 @@ fn json_value_to_toml_item_inserts_integer_as_toml_integer() {
 
 #[test]
 fn json_value_to_toml_item_inserts_float_as_toml_float() {
-    // json!(3.14) has as_i64() == None, so the f64 branch is taken.
-    let item = json_value_to_toml_item(json!(3.14), "s", "k").unwrap();
+    // json!(PI) has as_i64() == None, so the f64 branch is taken.
+    let pi = std::f64::consts::PI;
+    let item = json_value_to_toml_item(json!(pi), "s", "k").unwrap();
     let v = item.as_float().expect("should be float");
-    assert!((v - 3.14).abs() < f64::EPSILON);
+    assert!((v - pi).abs() < f64::EPSILON);
 }
 
 #[test]
@@ -747,7 +748,7 @@ fn write_field_to_disk_creates_section_absent_from_older_file() {
 
 /// A valid 64-char lowercase-hex weights SHA from a single hex nibble.
 fn fit_sha(nibble: char) -> String {
-    std::iter::repeat(nibble).take(64).collect()
+    std::iter::repeat_n(nibble, 64).collect()
 }
 
 #[test]

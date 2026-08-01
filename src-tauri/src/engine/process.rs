@@ -419,8 +419,8 @@ mod tests {
         assert_eq!(as_str[p + 1], LLAMA_SERVER_PARALLEL_SLOTS.to_string());
         assert_eq!(LLAMA_SERVER_PARALLEL_SLOTS, 1);
         // Cache RAM is bounded well below the 8GB upstream default.
-        assert!(LLAMA_SERVER_CACHE_RAM_MIB <= 1024);
-        assert!(LLAMA_SERVER_CACHE_RAM_MIB > 0);
+        const { assert!(LLAMA_SERVER_CACHE_RAM_MIB <= 1024) };
+        const { assert!(LLAMA_SERVER_CACHE_RAM_MIB > 0) };
     }
 
     #[test]

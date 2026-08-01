@@ -5817,12 +5817,14 @@ mod tests {
 
         mock.assert_async().await;
         assert_eq!(accumulated, "Hi");
-        let chunks = chunks.lock().unwrap();
-        assert!(matches!(&chunks[0], StreamChunk::Token(t) if t == "Hi"));
-        assert_eq!(
-            std::mem::discriminant(&chunks[1]),
-            std::mem::discriminant(&StreamChunk::Done)
-        );
+        {
+            let chunks = chunks.lock().unwrap();
+            assert!(matches!(&chunks[0], StreamChunk::Token(t) if t == "Hi"));
+            assert_eq!(
+                std::mem::discriminant(&chunks[1]),
+                std::mem::discriminant(&StreamChunk::Done)
+            );
+        }
         engine.shutdown().await;
     }
 
@@ -5977,12 +5979,14 @@ mod tests {
 
         let accumulated = task.await.unwrap();
         assert_eq!(accumulated, "");
-        let chunks = chunks.lock().unwrap();
-        assert_eq!(chunks.len(), 1, "exactly one terminal chunk");
-        assert_eq!(
-            std::mem::discriminant(&chunks[0]),
-            std::mem::discriminant(&StreamChunk::Cancelled)
-        );
+        {
+            let chunks = chunks.lock().unwrap();
+            assert_eq!(chunks.len(), 1, "exactly one terminal chunk");
+            assert_eq!(
+                std::mem::discriminant(&chunks[0]),
+                std::mem::discriminant(&StreamChunk::Cancelled)
+            );
+        }
         engine.shutdown().await;
     }
 
@@ -6033,14 +6037,16 @@ mod tests {
 
         let accumulated = task.await.unwrap();
         assert_eq!(accumulated, "");
-        let chunks = chunks.lock().unwrap();
-        assert_eq!(chunks.len(), 1, "exactly one terminal chunk");
-        assert_eq!(
-            std::mem::discriminant(&chunks[0]),
-            std::mem::discriminant(&StreamChunk::Cancelled)
-        );
-        // The load was not aborted: the engine is still starting.
-        assert_eq!(engine.status().borrow().state, "starting");
+        {
+            let chunks = chunks.lock().unwrap();
+            assert_eq!(chunks.len(), 1, "exactly one terminal chunk");
+            assert_eq!(
+                std::mem::discriminant(&chunks[0]),
+                std::mem::discriminant(&StreamChunk::Cancelled)
+            );
+            // The load was not aborted: the engine is still starting.
+            assert_eq!(engine.status().borrow().state, "starting");
+        }
         engine.shutdown().await;
     }
 
@@ -6068,13 +6074,15 @@ mod tests {
         .await;
 
         assert_eq!(accumulated, "");
-        let chunks = chunks.lock().unwrap();
-        assert_eq!(chunks.len(), 1, "exactly one terminal chunk");
-        assert!(matches!(
-            &chunks[0],
-            StreamChunk::Error(e)
-                if e.kind == EngineErrorKind::EngineStartFailed                && e.message.contains("spawn boom")
-        ));
+        {
+            let chunks = chunks.lock().unwrap();
+            assert_eq!(chunks.len(), 1, "exactly one terminal chunk");
+            assert!(matches!(
+                &chunks[0],
+                StreamChunk::Error(e)
+                    if e.kind == EngineErrorKind::EngineStartFailed                && e.message.contains("spawn boom")
+            ));
+        }
         engine.shutdown().await;
     }
 

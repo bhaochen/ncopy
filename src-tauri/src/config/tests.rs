@@ -1288,7 +1288,7 @@ fn behavior_search_notice_acknowledged_round_trips_through_load() {
 /// A valid 64-char lowercase-hex weights SHA built from a single hex nibble,
 /// so distinct test entries stay easy to read and compare.
 fn sha(nibble: char) -> String {
-    std::iter::repeat(nibble).take(64).collect()
+    std::iter::repeat_n(nibble, 64).collect()
 }
 
 #[test]

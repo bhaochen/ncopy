@@ -16,6 +16,7 @@ import type { DownloadContextValue } from '../contexts/DownloadContext';
 import type { StarterOption } from '../types/starter';
 import {
   invoke,
+  convertFileSrc,
   emitTauriEvent,
   enableChannelCapture,
   enableChannelCaptureWithResponses,
@@ -12118,6 +12119,88 @@ describe('App', () => {
 
       // Stream finished and the input still holds focus → back to listening.
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is listening');
+    });
+
+    it('plays the live mascot video when a live-ready event arrives', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-ready', '/tmp/thuki/live.mp4');
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      const liveVideo = document.querySelector(
+        'video.mascot-stage-live-video',
+      );
+      expect(liveVideo).not.toBeNull();
+      expect(liveVideo).toHaveAttribute(
+        'src',
+        convertFileSrc('/tmp/thuki/live.mp4'),
+      );
+    });
+
+    it('returns to idle when the live video ends', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-ready', '/tmp/thuki/live.mp4');
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      const liveVideo = document.querySelector(
+        'video.mascot-stage-live-video',
+      )!;
+      fireEvent.ended(liveVideo);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+    });
+
+    it('thinking preempts live while a response streams', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-ready', '/tmp/thuki/live.mp4');
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      const input = getAskInput();
+      act(() => {
+        setAskValue('hello');
+      });
+      act(() => {
+        fireEvent.keyDown(input, { key: 'Enter', shiftKey: false });
+      });
+      await act(async () => {});
+      act(() => {
+        getLastChannel()?.simulateMessage({ type: 'Token', data: 'hi' });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is thinking');
+
+      // The fresh turn finished; the old live clip is still pending playback,
+      // so the stage drops back to `live` rather than `idle`.
+      act(() => {
+        getLastChannel()?.simulateMessage({ type: 'Done' });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
     });
   });
 

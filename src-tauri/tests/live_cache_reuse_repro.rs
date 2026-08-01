@@ -284,7 +284,7 @@ async fn cache_reuse_repro_delivers_birthdate_to_the_reuse_gate() {
             c.score,
             has,
             c.url,
-            &c.text.chars().take(90).collect::<String>()
+            c.text.chars().take(90).collect::<String>()
         );
     }
     eprintln!("[repro] SELECT_CHUNKS birthdate-survived={chunk_has_birthdate}");

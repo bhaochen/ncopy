@@ -98,6 +98,12 @@ const ONBOARDING_EVENT = 'thuki://onboarding';
 const HISTORY_CLEARED_EVENT = 'thuki://history-cleared';
 
 /**
+ * A fresh SoulX-FlashHead `live.mp4` (driven by the `/voice` read-aloud
+ * audio) is ready; the payload is the file path to play via `convertFileSrc`.
+ */
+const MASCOT_LIVE_READY_EVENT = 'thuki://mascot-live-ready';
+
+/**
  * Strips control characters and enforces a length cap on externally-sourced
  * context (host-app text selections piped through the quote bar). Returns
  * undefined when the trimmed result is empty so callers can treat "no
@@ -1135,15 +1141,43 @@ function App() {
   const bookmarkButtonRef = useRef<HTMLButtonElement>(null);
 
   /**
-   * Active mascot stage. `thinking` outranks `listening` outranks `idle`: a
-   * streamed response (with or without the input focused) is the most salient
-   * state, then a focused/composing input, then the resting pose.
+   * Live mascot clip: asset URL of the SoulX-FlashHead `live.mp4` the `/voice`
+   * read-aloud audio drove. When set (and no turn is generating) the stage
+   * plays it once, then clears back to `idle`. `liveVideoKey` bumps on every
+   * live-ready event so the `<video>` element rebuilds even though the output
+   * file is overwritten in place.
    */
-  const mascotStageState: MascotStageState = isGenerating
-    ? 'thinking'
-    : isListening
-      ? 'listening'
-      : 'idle';
+  const [liveVideoSrc, setLiveVideoSrc] = useState<string | null>(null);
+  const [liveVideoKey, setLiveVideoKey] = useState(0);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<string>(MASCOT_LIVE_READY_EVENT, (event) => {
+      setLiveVideoSrc(convertFileSrc(event.payload));
+      setLiveVideoKey((k) => k + 1);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, []);
+
+  const handleLiveEnded = useCallback(() => {
+    setLiveVideoSrc(null);
+  }, []);
+
+  /**
+   * Active mascot stage. `live` (the spoken reply playing back) outranks
+   * everything while it is showing, except that a new generation (`thinking`)
+   * always preempts it. `thinking` outranks `listening` outranks `idle`.
+   */
+  const mascotStageState: MascotStageState =
+    liveVideoSrc && !isGenerating
+      ? 'live'
+      : isGenerating
+        ? 'thinking'
+        : isListening
+          ? 'listening'
+          : 'idle';
 
   /**
    * Determines whether the UI has entered "chat mode" - i.e., the morphing
@@ -4583,7 +4617,12 @@ function App() {
                     (idle / listening / thinking). Always visible at the top
                     of the overlay so the mascot is the face of the app in
                     both ask-bar and chat modes. */}
-                          <MascotStage state={mascotStageState} />
+                          <MascotStage
+                            state={mascotStageState}
+                            liveSrc={liveVideoSrc}
+                            liveKey={liveVideoKey}
+                            onLiveEnded={handleLiveEnded}
+                          />
                           {/* Chat Messages Area - morphs in when in chat mode. */}
                           <AnimatePresence>
                             {isChatMode ? (

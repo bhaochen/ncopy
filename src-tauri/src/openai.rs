@@ -681,12 +681,14 @@ mod tests {
         )
         .await;
 
-        let chunks = chunks.lock().unwrap();
-        assert!(matches!(&chunks[0], StreamChunk::Token(t) if t == "Hello"));
-        assert!(matches!(&chunks[1], StreamChunk::Token(t) if t == " world"));
-        assert!(matches!(&chunks[2], StreamChunk::Done));
-        assert_eq!(chunks.len(), 3, "exactly one terminal Done");
-        assert_eq!(accumulated, "Hello world");
+        {
+            let chunks = chunks.lock().unwrap();
+            assert!(matches!(&chunks[0], StreamChunk::Token(t) if t == "Hello"));
+            assert!(matches!(&chunks[1], StreamChunk::Token(t) if t == " world"));
+            assert!(matches!(&chunks[2], StreamChunk::Done));
+            assert_eq!(chunks.len(), 3, "exactly one terminal Done");
+            assert_eq!(accumulated, "Hello world");
+        }
 
         // Lock the wire contract: stream:true is sent and no sampling
         // parameters override the server/model defaults.

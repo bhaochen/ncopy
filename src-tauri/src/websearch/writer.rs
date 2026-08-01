@@ -1017,10 +1017,7 @@ mod tests {
             Some(&imgs),
         );
         assert_eq!(msgs[2].content, "what is this product price?");
-        assert_eq!(
-            msgs[2].images.as_ref().map(|v| v.as_slice()),
-            Some(imgs.as_slice())
-        );
+        assert_eq!(msgs[2].images.as_deref(), Some(imgs.as_slice()));
     }
 
     #[test]
@@ -1034,10 +1031,7 @@ mod tests {
             SearchFailReason::Unreachable,
         );
         assert_eq!(msgs[1].content, "look this up");
-        assert_eq!(
-            msgs[1].images.as_ref().map(|v| v.as_slice()),
-            Some(imgs.as_slice())
-        );
+        assert_eq!(msgs[1].images.as_deref(), Some(imgs.as_slice()));
     }
 
     #[test]

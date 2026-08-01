@@ -1048,6 +1048,14 @@ body {
 .mascot-stage-video-active {
   opacity: 1;
 }
+/* The `live` panel's plain video fills the panel like the loop pair above. */
+.mascot-stage-live-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 /* Two stacked videos per state. The active one sits on top and plays; the
    parked one sits underneath, always fully opaque, parked on the first frame
    so its handover frame stays decoded AND composited — it can never lose its

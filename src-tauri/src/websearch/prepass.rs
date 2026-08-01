@@ -679,10 +679,7 @@ mod tests {
     fn messages_attach_latest_images_and_vision_instruction() {
         let imgs = vec!["QUJD".to_string(), "REVG".to_string()];
         let msgs = build_prepass_messages(&[], "what is this?", Some(&imgs), "2026-07-05");
-        assert_eq!(
-            msgs[1].images.as_ref().map(|v| v.as_slice()),
-            Some(imgs.as_slice())
-        );
+        assert_eq!(msgs[1].images.as_deref(), Some(imgs.as_slice()));
         assert!(msgs[1].content.contains(CLASSIFIER_VISION_INSTRUCTION));
         assert!(msgs[0].images.is_none());
     }
@@ -803,7 +800,7 @@ mod tests {
         // The `lang` field adds ~15 characters of OUTPUT. The cap governs output
         // tokens, not the prompt, and a classifier JSON object is far under it;
         // this asserts the headroom is real rather than assumed.
-        assert!(crate::config::defaults::PREPASS_MAX_TOKENS >= 1536);
+        const { assert!(crate::config::defaults::PREPASS_MAX_TOKENS >= 1536) };
     }
 
     #[test]

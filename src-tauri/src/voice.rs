@@ -277,11 +277,14 @@ async fn play_audio(path: &std::path::Path) -> Result<(), String> {
 /// Speaks `text` aloud. The frontend calls this with the plain-text version of
 /// a finished assistant reply; `[voice].enabled` is re-checked here as a
 /// last-line defense so a stale caller can never trigger audio while voice is
-/// off.
+/// off. After a successful playback the MP3 is handed to the live-mascot
+/// pipeline (SoulX-FlashHead) so the same audio drives a talking-head video;
+/// the pipeline owns the MP3 once handed off.
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[cfg_attr(not(coverage), tauri::command)]
 pub async fn tts_speak(
     text: String,
+    app: tauri::AppHandle,
     config: State<'_, parking_lot::RwLock<AppConfig>>,
 ) -> Result<(), String> {
     if !config.read().voice.enabled {
@@ -300,10 +303,17 @@ pub async fn tts_speak(
     }
     let result = play_audio(&temp).await;
     match &result {
-        Ok(()) => eprintln!("[voice] played ok"),
-        Err(e) => eprintln!("[voice] playback failed: {e}"),
+        Ok(()) => {
+            eprintln!("[voice] played ok");
+            // Hand the MP3 to the live-video pipeline; it transcodes, runs
+            // SoulX-FlashHead, and deletes the file when done.
+            crate::mascot_live::trigger_live_generation(&app, &temp);
+        }
+        Err(e) => {
+            eprintln!("[voice] playback failed: {e}");
+            let _ = tokio::fs::remove_file(&temp).await;
+        }
     }
-    let _ = tokio::fs::remove_file(&temp).await;
     result
 }
 
