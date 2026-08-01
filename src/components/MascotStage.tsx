@@ -47,7 +47,7 @@ interface MascotStageProps {
 function MascotStageComponent({ state }: MascotStageProps) {
   return (
     <div
-      className="mascot-stage"
+      className="mascot-stage self-center"
       data-testid="mascot-stage"
       role="status"
       aria-label={`Thuki is ${state}`}
