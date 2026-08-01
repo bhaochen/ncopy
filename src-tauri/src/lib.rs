@@ -2,8 +2,8 @@
  * Thuki Core Library
  *
  * Application bootstrap for the Thuki desktop agent. Configures the macOS
- * status bar presence, system tray menu, double-tap Option hotkey, and
- * window lifecycle (hide-on-close instead of quit).
+ * status bar presence, double-tap Control hotkey, and window lifecycle
+ * (hide-on-close instead of quit).
  *
  * On macOS the main window is converted to an NSPanel via `tauri-nspanel`.
  * This allows the overlay to appear on top of native fullscreen applications
@@ -49,10 +49,7 @@ use std::sync::{
     Arc,
 };
 
-use tauri::{
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Listener, Manager, RunEvent,
-};
+use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
@@ -359,8 +356,8 @@ static LAUNCH_SHOW_PENDING: AtomicBool = AtomicBool::new(true);
 /// permissions, model_check, intro). Set when `show_onboarding_window` puts
 /// the window into its fixed 460x640 centered onboarding appearance, cleared
 /// by `finish_onboarding` just before the first real overlay show. Read at the
-/// top of `show_overlay` so an activation (tray "Open Thuki" / double-tap
-/// Control) does not run the ask-bar show path while onboarding is up: doing so
+/// top of `show_overlay` so an activation (double-tap Control) does not run
+/// the ask-bar show path while onboarding is up: doing so
 /// would reposition the window and emit a `show` visibility event, and the
 /// frontend's width/height sync would then collapse the still-onboarding window
 /// to the ask-bar size.
@@ -486,8 +483,12 @@ fn shutdown_engine_bounded(app: &tauri::AppHandle) {
     });
 }
 
-/// Handles a quit request from the app menu or the tray: warn when a download
-/// would be lost, otherwise quit immediately.
+/// Handles a quit request from the app menu: warn when a download would be
+/// lost, otherwise quit immediately.
+///
+/// Only reachable from the macOS app menu's Quit item (the sole remaining
+/// request-quit entry point now that the tray is gone).
+#[cfg(target_os = "macos")]
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn request_quit(app: &tauri::AppHandle) {
     if should_warn_on_quit(app) {
@@ -636,8 +637,8 @@ fn show_overlay(app_handle: &tauri::AppHandle, ctx: crate::context::ActivationCo
     }
 
     // Pre-load the active model so the user's first message does not pay
-    // the cold-start penalty. Fires on all show paths: double-tap, tray,
-    // and first-launch auto-show. Branches by the active provider's kind:
+    // the cold-start penalty. Fires on all show paths: double-tap and
+    // first-launch auto-show. Branches by the active provider's kind:
     // Ollama warms via its native /api/chat, the built-in engine starts
     // (or reuses) its sidecar and primes the KV cache, and openai providers
     // get no warmup (nothing local to warm).
@@ -970,9 +971,9 @@ fn show_settings_window(app_handle: &tauri::AppHandle) {
     let _ = window.set_focus();
 }
 
-/// Frontend entry point for opening the Settings window. The tray menu reaches
-/// `show_settings_window` directly; this exposes the same path to the UI (the
-/// in-overlay model picker links "Settings" here when no model is installed yet).
+/// Frontend entry point for opening the Settings window. `show_settings_window`
+/// is the shared show path; this exposes it to the UI (the in-overlay model
+/// picker links "Settings" here when no model is installed yet).
 #[tauri::command]
 #[cfg_attr(coverage_nightly, coverage(off))]
 fn open_settings_window(app_handle: tauri::AppHandle) {
@@ -983,9 +984,8 @@ fn open_settings_window(app_handle: tauri::AppHandle) {
     let _ = app_handle.emit(SETTINGS_SHOW_DISCOVER_EVENT, ());
 }
 
-/// Frontend entry point mirroring the tray "Settings…" item: opens the
-/// Settings window on whatever tab it last showed, with no deep-link. The
-/// titlebar gear and the tray both route here; unlike `open_settings_window`
+/// Frontend entry point for the titlebar gear: opens the Settings window on
+/// whatever tab it last showed, with no deep-link. Unlike `open_settings_window`
 /// it never jumps to a specific pane.
 #[tauri::command]
 #[cfg_attr(coverage_nightly, coverage(off))]
@@ -2404,62 +2404,6 @@ fn build_app_menu<R: tauri::Runtime>(
     Menu::with_items(app, &[&app_menu, &edit_menu])
 }
 
-// ─── Tray helpers ────────────────────────────────────────────────────────────
-
-/// Builds the system-tray menu. When `update_version` is `Some`, a
-/// "What's New in vX.Y.Z" item is injected between the separator and Quit.
-/// It opens the "What's New" window (preview + explicit actions); it does
-/// not install on click.
-#[cfg_attr(coverage_nightly, coverage(off))]
-fn build_tray_menu<R: tauri::Runtime>(
-    app: &tauri::AppHandle<R>,
-    update_version: Option<&str>,
-) -> tauri::Result<tauri::menu::Menu<R>> {
-    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-
-    let show = MenuItem::with_id(app, "show", "Open Thuki", true, None::<&str>)?;
-    let settings = MenuItem::with_id(app, "settings", "Settings…", true, Some("Cmd+,"))?;
-    let sep1 = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Thuki", true, Some("Cmd+Q"))?;
-
-    if let Some(version) = update_version {
-        let label = format!("What's New in v{version}");
-        let update = MenuItem::with_id(app, "update", &label, true, None::<&str>)?;
-        let sep2 = PredefinedMenuItem::separator(app)?;
-        Menu::with_items(app, &[&show, &settings, &sep1, &update, &sep2, &quit])
-    } else {
-        Menu::with_items(app, &[&show, &settings, &sep1, &quit])
-    }
-}
-
-/// Re-reads `UpdaterState` and atomically swaps the tray icon and menu to
-/// reflect whether an update is available.
-#[cfg_attr(coverage_nightly, coverage(off))]
-fn refresh_tray(app: &tauri::AppHandle) {
-    let state: tauri::State<updater::state::UpdaterState> = app.state();
-    let snap = state.snapshot();
-    let version = snap.update.as_ref().map(|u| u.version.clone());
-
-    let Some(tray) = app.tray_by_id("main") else {
-        return;
-    };
-
-    // Swap icon
-    let bytes: &[u8] = if version.is_some() {
-        include_bytes!("../icons/tray-update.png")
-    } else {
-        include_bytes!("../icons/128x128.png")
-    };
-    if let Ok(img) = tauri::image::Image::from_bytes(bytes) {
-        let _ = tray.set_icon(Some(img));
-    }
-
-    // Swap menu
-    if let Ok(menu) = build_tray_menu(app, version.as_deref()) {
-        let _ = tray.set_menu(Some(menu));
-    }
-}
-
 // ─── Application entry point ─────────────────────────────────────────────────
 
 /// Initialises and runs the Tauri application.
@@ -2468,7 +2412,7 @@ fn refresh_tray(app: &tauri::AppHandle) {
 /// 1. `ActivationPolicy::Accessory` suppresses the Dock icon.
 /// 2. The main window is converted to an NSPanel for fullscreen overlay.
 /// 3. The settings window is converted to a ThukiSettingsPanel NSPanel subclass.
-/// 4. System tray is registered; double-tap Option listener starts.
+/// 4. The double-tap Control activation listener starts.
 /// 5. `CloseRequested` is intercepted to hide instead of destroy.
 ///
 /// # Panics
@@ -2539,21 +2483,6 @@ pub fn run() {
     // async-signal context. See `startup_guard::block_shutdown_signals`.
     startup_guard::block_shutdown_signals();
 
-    // Suppress the `libayatana-appindicator` deprecation warning (Linux only).
-    // The shared library prints a GLib WARNING recommending
-    // libayatana-appindicator-glib, but that variant is not available on all
-    // distros and the tray-icon crate's appindicator backend depends on GTK
-    // symbols that the GLib-only variant does not export. The warning itself
-    // is harmless — the tray works correctly — so we drop it quietly.
-    #[cfg(target_os = "linux")]
-    glib::log_set_handler(
-        Some("libayatana-appindicator"),
-        glib::LogLevels::LEVEL_WARNING,
-        false,
-        false,
-        |_, _, _| {},
-    );
-
     ({
         let b = tauri::Builder::default()
             .plugin(tauri_plugin_updater::Builder::new().build())
@@ -2586,63 +2515,6 @@ pub fn run() {
         // file browser on any individual save.
         #[cfg(target_os = "macos")]
         apply_save_panel_compact_default();
-
-        // ── System tray icon + menu ───────────────────────────────────
-        // Order chosen for muscle-memory parity with mac tray apps
-        // (Bartender, CleanShot X, Rectangle): primary action at top,
-        // settings near it with the macOS-canonical ⌘, accelerator,
-        // separator, then Quit at the bottom. The "Reveal app data"
-        // affordance lives inside the Settings → About tab so the tray
-        // stays focused on session-level actions.
-        let tray_menu = build_tray_menu(app.handle(), None)?;
-
-        let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png"))
-            .expect("Failed to load tray icon");
-
-        let _tray = TrayIconBuilder::with_id("main")
-            .icon(tray_icon)
-            .icon_as_template(false)
-            .tooltip("Thuki")
-            .menu(&tray_menu)
-            .show_menu_on_left_click(false)
-            .on_menu_event(|app, event| match event.id.as_ref() {
-                "show" => {
-                    show_overlay(app, crate::context::ActivationContext::empty());
-                }
-                "settings" => {
-                    show_settings_window(app);
-                }
-                "update" => {
-                    // Open the "What's New" window so the user previews
-                    // the release notes and picks an action (Skip /
-                    // Later / Install Update) instead of an install
-                    // starting on a single click.
-                    // The chat footer and Settings banner route through
-                    // the same `open_update_window` command.
-                    show_update_window(app);
-                }
-                "quit" => {
-                    // Tray Quit click. Cmd+Q reaches the app menu + Exit
-                    // Requested instead, all routed through request_quit so
-                    // an in-progress download is never torn down silently.
-                    request_quit(app);
-                }
-                _ => {}
-            })
-            .on_tray_icon_event(|tray, event| {
-                if let TrayIconEvent::Click {
-                    button: MouseButton::Left,
-                    button_state: MouseButtonState::Up,
-                    ..
-                } = event
-                {
-                    show_overlay(
-                        tray.app_handle(),
-                        crate::context::ActivationContext::empty(),
-                    );
-                }
-            })
-            .build(app)?;
 
         // ── Activation listener (macOS only) ─────────────────────────
         // Only start the event tap when Accessibility is already granted.
@@ -2919,14 +2791,6 @@ pub fn run() {
             let (_interval, _auto_check) = (0u64, false);
 
             app.manage(updater_state);
-
-            // Refresh the tray icon and menu whenever the poller finds a
-            // new update. The listener must be registered after manage() so
-            // refresh_tray can read UpdaterState from managed state.
-            let tray_refresh_handle = app.handle().clone();
-            app.listen("update-available", move |_event| {
-                refresh_tray(&tray_refresh_handle);
-            });
 
             #[cfg(target_os = "macos")]
             if auto_check {

@@ -3,8 +3,7 @@
  *
  * Owns the tab navigation, corrupt-recovery banner, the cross-tab Saved
  * pill, and the document-level Cmd+, re-focus listener (the one place a
- * keyboard accelerator can fire on the Settings window itself; tray-menu
- * accelerator is handled OS-side).
+ * keyboard accelerator can fire on the Settings window itself).
  *
  * Render gating: until the initial `get_config` resolves, the window
  * renders `null` rather than a flash skeleton (per the eng-review

@@ -6,8 +6,9 @@
 //! no-user-action auto-startup work re-ran and re-froze the machine before the
 //! user could intervene: a deadloop.
 //!
-//! Thuki hides on window close and quits only from the tray, so a clean-exit
-//! signal almost never fires during a healthy session. Crash-loop detection
+//! Thuki hides on window close and quits from the app menu (Cmd+Q), so a
+//! clean-exit signal almost never fires during a healthy session. Crash-loop
+//! detection
 //! therefore MUST NOT depend on one. This module proves liveness two ways that
 //! survive process death by ANY cause:
 //!

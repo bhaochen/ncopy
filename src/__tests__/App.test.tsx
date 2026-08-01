@@ -10587,7 +10587,7 @@ describe('App', () => {
         fireEvent.click(minimizeBtn);
       });
 
-      // Emit a restore visibility event (hotkey/tray path)
+      // Emit a restore visibility event (hotkey path)
       await act(async () => {
         emitTauriEvent('thuki://visibility', { state: 'restore' });
       });
@@ -12122,7 +12122,7 @@ describe('App', () => {
   });
 
   describe('titlebar settings gear', () => {
-    it('opens Settings mirroring the tray item (no deep-link)', async () => {
+    it('opens Settings with no deep-link (last-shown tab)', async () => {
       enableChannelCaptureWithResponses({
         get_model_picker_state: {
           active: 'gemma4:e2b',

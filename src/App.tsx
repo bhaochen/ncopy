@@ -1070,8 +1070,8 @@ function App() {
   }, []);
 
   /**
-   * Opens the Settings window on whatever tab it last showed, mirroring the
-   * system tray "Settings…" item. Wired to the titlebar gear.
+   * Opens the Settings window on whatever tab it last showed. Wired to the
+   * titlebar gear.
    */
   const handleOpenSettings = useCallback(() => {
     void invoke('open_settings');

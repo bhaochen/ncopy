@@ -200,9 +200,8 @@ interface WindowControlsProps {
    */
   onExportToggle?: () => void;
   /**
-   * Called when the user clicks the settings gear, which mirrors the system
-   * tray "Settings…" item: opens the Settings window on whatever tab it last
-   * showed. Omit to hide the gear button entirely.
+   * Called when the user clicks the settings gear: opens the Settings window
+   * on whatever tab it last showed. Omit to hide the gear button entirely.
    */
   onSettings?: () => void;
   /**

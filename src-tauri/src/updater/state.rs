@@ -50,9 +50,9 @@ pub struct SnoozeSidecar {
     pub last_reset_for_version: Option<String>,
     /// SemVer strings the user explicitly dismissed via "Skip This
     /// Version" in the update window. The poller filters any available
-    /// version found in this list so the banners and tray entry stay
-    /// hidden for it permanently. A newer version not in this list still
-    /// surfaces normally. Persisted so a skip survives an app restart.
+    /// version found in this list so the banners stay hidden for it
+    /// permanently. A newer version not in this list still surfaces
+    /// normally. Persisted so a skip survives an app restart.
     #[serde(default)]
     pub skipped_versions: Vec<String>,
 }

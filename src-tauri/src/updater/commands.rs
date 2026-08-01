@@ -50,8 +50,8 @@ async fn download_latest_update(app: &AppHandle) -> Result<(), String> {
 ///
 /// Reached only via the `install_update` Tauri command, which the
 /// "Install Update" button in the "What's New" window invokes. Every
-/// update entry point (chat footer, Settings banner, tray menu) now opens
-/// that window first (see `open_update_window`) so the user previews the
+/// update entry point (chat footer, Settings banner) now opens that
+/// window first (see `open_update_window`) so the user previews the
 /// release notes and picks an action explicitly instead of an install
 /// starting on a single click.
 #[cfg_attr(coverage_nightly, coverage(off))]
@@ -62,9 +62,9 @@ pub async fn install_update_inner(app: AppHandle) -> Result<(), String> {
 
 /// "Skip This Version": permanently suppress the currently-available
 /// version. Appends it to the persisted skip list, clears the in-memory
-/// update so the banners and tray entry disappear immediately, persists
-/// the sidecar, notifies the frontend, and refreshes the tray. A newer
-/// version that is not in the skip list will still surface normally.
+/// update so the banners disappear immediately, persists the sidecar, and
+/// notifies the frontend. A newer version that is not in the skip list
+/// will still surface normally.
 ///
 /// Thin orchestration wrapper (matches `snooze_update_*`): the testable
 /// logic (idempotent append, exact-match lookup) lives in `UpdaterState`
@@ -79,14 +79,13 @@ pub fn skip_update_version(state: State<'_, UpdaterState>, app: AppHandle) -> Re
     state.set_update(None);
     persist_sidecar(&state, &app)?;
     let _ = app.emit("update-available", state.snapshot());
-    crate::refresh_tray(&app);
     Ok(())
 }
 
-/// Opens (or focuses) the "What's New" update window. All three update
-/// entry points (chat footer, Settings banner, tray menu) route here so
-/// the user previews the release notes and picks an action explicitly
-/// instead of an install starting on a single click.
+/// Opens (or focuses) the "What's New" update window. All update entry
+/// points (chat footer, Settings banner) route here so the user previews
+/// the release notes and picks an action explicitly instead of an install
+/// starting on a single click.
 #[cfg_attr(coverage_nightly, coverage(off))]
 #[tauri::command]
 pub fn open_update_window(app: AppHandle) -> Result<(), String> {

@@ -34,8 +34,8 @@ pub struct ActivationContext {
 
 impl ActivationContext {
     /// Returns an empty context with no selection, bounds, or mouse position.
-    /// Used for menu-item and tray-icon activations where no host-app context
-    /// is available.
+    /// Used for activations where no host-app context is available (e.g. the
+    /// first-launch auto-show).
     pub fn empty() -> Self {
         Self {
             selected_text: None,

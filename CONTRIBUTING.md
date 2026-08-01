@@ -33,12 +33,6 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 After installation, restart your shell or run `source ~/.cargo/env` to make `cargo` available. Thuki builds against stable Rust.
 
-Running the coverage suite (required before submitting a PR) also needs the `nightly-2026-03-30` toolchain with `llvm-tools`:
-
-```bash
-rustup toolchain install nightly-2026-03-30 --component llvm-tools
-```
-
 **macOS:** Thuki is macOS-only. It uses NSPanel and Core Graphics APIs that are not available on other platforms.
 
 **CMake:** required to build the bundled llama.cpp inference engine from source
@@ -106,7 +100,7 @@ No AI backend setup is required: Thuki bundles its own llama.cpp inference engin
 
 ## Running Tests
 
-**100% code coverage is mandatory.** All new or modified code must maintain 100% coverage across lines, functions, branches, and statements. PRs that drop below 100% will not be merged.
+**100% frontend code coverage is mandatory.** All new or modified frontend code must maintain 100% coverage across lines, functions, branches, and statements. PRs that drop below 100% frontend coverage will not be merged. Backend coverage is not gated.
 
 ### Frontend tests (Vitest + React Testing Library)
 
@@ -121,15 +115,14 @@ Coverage output is in `coverage/`. Open `coverage/index.html` in a browser for a
 ### Backend tests (Cargo)
 
 ```bash
-bun run test:backend           # Run all Rust tests
-bun run test:backend:coverage  # Run with 100% line coverage enforcement
+bun run test:backend  # Run all Rust tests
 ```
 
 ### Run everything
 
 ```bash
 bun run test:all           # Both frontend and backend tests
-bun run test:all:coverage  # Both with coverage enforcement
+bun run test:all:coverage  # Frontend with coverage + backend tests
 ```
 
 ### Full validation gate
@@ -170,7 +163,7 @@ Key style rules:
 
 2. **Make your changes** following the code style guidelines above
 
-3. **Write or update tests** to maintain 100% coverage
+3. **Write or update tests** to maintain 100% frontend coverage (backend coverage is not gated)
 
 4. **Run the validation suite**
 

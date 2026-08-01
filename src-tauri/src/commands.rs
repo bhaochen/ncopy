@@ -2930,7 +2930,7 @@ pub fn reset_conversation(history: State<'_, ConversationHistory>) {
 /// every still-open conversation ended on every dismiss. The frontend
 /// invokes this command exactly when the user-perceived conversation
 /// terminates: clicking "New conversation", loading a different
-/// conversation from history, or quitting from the tray.
+/// conversation from history, or quitting.
 ///
 /// The command is a thin trace-only signal; it does NOT mutate
 /// `ConversationHistory` (that is `reset_conversation`'s job) and does

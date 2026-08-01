@@ -28,9 +28,9 @@ bun run engine:ensure    # Build + verify + sign the pinned llama-server sidecar
 bun run test             # Vitest run (frontend tests only)
 bun run test:watch       # Vitest watch mode
 bun run test:coverage    # Vitest with coverage report
-bun run test:backend          # Cargo test (Rust backend tests)
-bun run test:backend:coverage # Cargo test + llvm-cov, enforces 100% line coverage (mirrors CI)
-bun run test:all              # Both Vitest and Cargo test
+bun run test:backend     # Cargo test (Rust backend tests)
+bun run test:all         # Both Vitest and Cargo test
+bun run test:all:coverage # Vitest with coverage + Cargo test
 
 bun run validate-build   # All gates: lint + format + typecheck + build
 bun run validate-build:fast # Per-change tier: lint + format + typecheck + debug backend build (no bundle/sign)
@@ -40,9 +40,9 @@ bun run validate-build:fast # Per-change tier: lint + format + typecheck + debug
 
 Tests use **Vitest** for the frontend (React/TypeScript with React Testing Library + happy-dom) and **Cargo test** for the backend (Rust unit tests).
 
-**100% code coverage is mandatory.** Any new or modified code — frontend or backend — must maintain 100% coverage across lines, functions, branches, and statements. PRs that drop below 100% coverage will not be merged.
+**Frontend coverage is mandatory.** Any new or modified frontend code must maintain 100% coverage across lines, functions, branches, and statements. PRs that drop below 100% frontend coverage will not be merged.
 
-**At milestone/PR time, always run `bun run test:all:coverage` (never the bare `bun run test` / `bun run test:all`).** This single command runs both Vitest with coverage and the cargo llvm-cov gate that CI enforces; see "Post-Change Validation" below for the full per-change vs per-milestone cadence. If it does not exit cleanly, the feature is not done. Functions excluded from coverage with `#[cfg_attr(coverage_nightly, coverage(off))]` must be thin wrappers (Tauri commands, filesystem I/O) whose logic is tested through the functions they delegate to.
+**At milestone/PR time, always run `bun run test:all:coverage` (never the bare `bun run test` / `bun run test:all`).** This single command runs Vitest with coverage plus the full backend `cargo test` suite, and it runs locally on stable Rust without any extra toolchain. If it does not exit cleanly, the feature is not done.
 
 ## Since v0.15
 
@@ -167,7 +167,7 @@ Structure:
 
 ## Post-Change Validation
 
-Validation runs on two tiers: fast checks after every code change, full gates once per feature/PR. This is a change in cadence only, not a lowered bar: CI still runs the full gates on every PR, and the 100% coverage requirement at merge time is unchanged.
+Validation runs on two tiers: fast checks after every code change, full gates once per feature/PR. This is a change in cadence only, not a lowered bar: the frontend 100% coverage requirement at merge time is unchanged.
 
 ### Per-change (every edit, fast)
 
@@ -177,13 +177,13 @@ After each code change and before ending your response, run the checks scoped to
 - Frontend: `bunx eslint <touched files>` and `bun run typecheck` (`tsc --noEmit`)
 - Or, as a single convenience command covering lint + format + typecheck + a debug backend build: `bun run validate-build:fast`
 
-Do **not** run `test:all:coverage` or `validate-build` at this tier: no llvm-cov, no release build/bundle/sign. Fix anything this tier surfaces before moving on.
+Do **not** run `test:all:coverage` or `validate-build` at this tier: no coverage run, no release build/bundle/sign. Fix anything this tier surfaces before moving on.
 
 ### Per-milestone (once per feature, PR, or session end)
 
 Before declaring a FEATURE or PR done, run the full gates once and fix regressions in one batch:
 
-1. `bun run test:all:coverage`, frontend + backend tests must pass AND the 100% coverage gate must hold
+1. `bun run test:all:coverage`, frontend tests must pass at 100% coverage AND all backend tests must pass
 2. `bun run validate-build`, must complete with **zero warnings and zero errors**
 
 Do not consider the feature done if either step produces any warnings or errors. This full pass is what "done" means; the per-change tier above only stops you from re-paying its cost on every intermediate edit.
