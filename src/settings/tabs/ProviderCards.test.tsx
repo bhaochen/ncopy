@@ -253,9 +253,7 @@ describe('OpenAiProviderCard', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'OpenAI-compatible model' }),
     );
-    expect(
-      screen.getByRole('option', { name: 'model-x' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'model-x' })).toBeInTheDocument();
   });
 
   it('shows the empty-inventory hint when the server lists no models', async () => {
@@ -477,7 +475,9 @@ describe('OpenAiProviderCard', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'OpenAI-compatible model' }),
     );
-    expect(screen.getByRole('option', { name: 'old-model' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: 'old-model' }),
+    ).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
     const url = screen.getByLabelText('OpenAI-compatible base URL');
     fireEvent.focus(url);
@@ -487,7 +487,9 @@ describe('OpenAiProviderCard', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'OpenAI-compatible model' }),
     );
-    expect(screen.getByRole('option', { name: 'new-model' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: 'new-model' }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole('option', { name: 'old-model' }),
     ).not.toBeInTheDocument();
@@ -522,7 +524,9 @@ describe('OpenAiProviderCard', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'OpenAI-compatible model' }),
     );
-    expect(screen.getByRole('option', { name: 'new-model' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: 'new-model' }),
+    ).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Escape' });
 
     // Stale earlier refresh settles late and must not overwrite the newer one.
@@ -536,7 +540,9 @@ describe('OpenAiProviderCard', () => {
     expect(
       screen.queryByRole('option', { name: 'old-model' }),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'new-model' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: 'new-model' }),
+    ).toBeInTheDocument();
   });
 
   it('ignores a stale model-list rejection that settles after a newer success', async () => {
@@ -565,7 +571,9 @@ describe('OpenAiProviderCard', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'OpenAI-compatible model' }),
     );
-    expect(screen.getByRole('option', { name: 'new-model' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: 'new-model' }),
+    ).toBeInTheDocument();
 
     // A late rejection from the superseded refresh must not surface an error
     // or clear the newer model list.
@@ -574,7 +582,9 @@ describe('OpenAiProviderCard', () => {
       await Promise.resolve();
     });
     expect(screen.queryByText('Couldn’t list models')).not.toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'new-model' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('option', { name: 'new-model' }),
+    ).toBeInTheDocument();
   });
 
   it('reverts the base URL when the commit fails; unchanged URL never commits', async () => {

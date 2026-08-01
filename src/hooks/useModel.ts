@@ -87,6 +87,13 @@ export interface Message {
     availableBytes: number;
     canRemember: boolean;
   };
+  /**
+   * Marks both halves of a purely informational user/assistant turn (e.g. the
+   * `/voice` on/off confirmation). Status turns are rendered like any other
+   * chat turn but are excluded from history persistence and never trigger
+   * read-aloud. `addStatusTurn` is the only producer.
+   */
+  statusOnly?: boolean;
 }
 
 /** Raw streaming chunk payload emitted from the Rust chat backend. */
@@ -1198,6 +1205,32 @@ export function useModel(
     [onTurnComplete],
   );
 
+  /**
+   * Inserts a purely informational user/assistant turn (e.g. the `/voice`
+   * on/off confirmation). Unlike `addOcrTurn` this deliberately does NOT call
+   * `onTurnComplete`: status turns must never be persisted to history or read
+   * aloud. Both messages carry `statusOnly`, which `conversationAutoSave` and
+   * `App.tsx`'s save path filter out.
+   */
+  const addStatusTurn = useCallback(
+    (userContent: string, assistantContent: string) => {
+      const userMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: userContent,
+        statusOnly: true,
+      };
+      const assistantMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: assistantContent,
+        statusOnly: true,
+      };
+      setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    },
+    [],
+  );
+
   return {
     messages,
     ask,
@@ -1209,6 +1242,7 @@ export function useModel(
     loadMessages,
     getTraceConversationId,
     addOcrTurn,
+    addStatusTurn,
     retryMessageWithOversized,
     retryMessage,
     updateErroredMessageModel,

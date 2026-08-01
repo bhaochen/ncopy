@@ -223,3 +223,17 @@ Summarizes what a piece of text is about, then extracts every task, action item,
 **Behavior:** Responds in two parts: a short paragraph explaining the context and what is at stake, followed by a `- [ ]` checkbox list of all tasks. Each to-do includes who is responsible, plus any deadline or timeframe if mentioned. Does not trigger web search.
 
 **Composable:** `/todos` works with attached images or `/screen`. Vision OCR extracts the text first, then extracts to-dos.
+
+---
+
+## /voice
+
+Toggles read-aloud. When on, every finished assistant reply is spoken aloud through Edge TTS (zero-setup, keyless).
+
+**Usage:** `/voice`
+
+**Examples:**
+- `/voice`: turns read-aloud on, so finished replies are spoken aloud
+- `/voice` again: turns read-aloud off
+
+**Behavior:** Toggles read-aloud for assistant replies. When on, each finished reply is synthesized with Edge TTS and played through the system speakers. Toggling either way shows an in-chat confirmation (a status turn, never saved to history). The current state is stored in `[voice].enabled`. Does not trigger web search.

@@ -14,8 +14,8 @@ import type { SaveOptions } from '../hooks/useConversationHistory';
 export function messagesForCreateSave(msgs: Message[]): Message[] {
   return msgs.filter(
     (m) =>
-      m.role === 'user' ||
-      m.content.length > 0 ||
+      (!m.statusOnly && m.role === 'user') ||
+      (!m.statusOnly && m.content.length > 0) ||
       Boolean(m.thinkingContent) ||
       Boolean(m.errorKind),
   );

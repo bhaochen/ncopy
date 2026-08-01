@@ -130,6 +130,13 @@ auto_save_notice_acknowledged = false
 # freeze-risk loads still warn. Sanitized on load (64-hex only, deduped, capped).
 dismissed_memory_fit_models = []
 
+[voice]
+# Read every finished assistant reply aloud via Edge TTS. The /voice command
+# toggles this at runtime.
+enabled = false
+# Edge TTS voice name used for read-aloud.
+voice = "zh-CN-XiaoxiaoNeural"
+
 [debug]
 # Records every chat conversation, including its built-in web-search turns, to
 # disk for later inspection.
@@ -303,6 +310,16 @@ Related: user behavior in [commands.md](./commands.md) and [privacy.md](./privac
 | `VERTICAL_RETRY_BACKOFF_MAX_MS`  | `800 ms` | No      | Internal resilience policy, not a preference. Same rationale as the min bound above.                                                                                                                                                                            | —      | Upper bound of the jittered delay before a vertical's single automatic retry.                                                                                                                                                                                                                                              |
 | `REACHABILITY_PROBE_TIMEOUT_MS`  | `800 ms` | No      | Internal robustness bound on the offline check, not a knob: its only user-visible effect is how fast a turn that was never going to reach the web gives up. A probe that misses this deadline proves nothing and is treated as "unknown", never as "offline".   | —      | Deadline for the one reachability probe (DNS resolution of every SERP engine host the turn is about to contact; any host resolving counts as reachable; no new third-party host is involved).                                                                                                                                |
 | `OFFLINE_SHORTCIRCUIT_WINDOW_MS` | `1500 ms` | No     | Judgment value trading offline give-up latency against the risk of cutting a live-but-slow request short. Raising it makes an offline user wait longer for the truth; lowering it leaves a slow-starting request less room to win the race, so it stays fixed.  | —      | How long a turn whose probe proved there is no network path still waits on the real search requests before it discloses that the web could not be reached. Replaces the tens of seconds of stacked per-engine timeouts an offline device used to sit through. A request that returns inside this window always wins.        |
+
+### `[voice]`
+
+Read-aloud of assistant replies. Toggled at runtime by the `/voice` slash command; `enabled` is the switch it flips. When on, each finished reply is flattened to plain text and streamed to the free Microsoft Edge TTS endpoint, then played through the system audio device. The endpoint is reached over the same SSRF-safe egress pattern as web search, and failures are swallowed silently so a dead connection never stalls a turn.
+
+| Field       | Default                | Tunable? | Why not tunable | Bounds   | Description                                                                                                                                                                                               |
+| :---------- | :--------------------- | :------- | :-------------- | :------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`   | `false`                | Yes      | n/a             | n/a      | Whether finished assistant replies are read aloud. `/voice` flips this; the in-chat confirmation turn is not itself spoken. |
+| `voice`     | `"zh-CN-XiaoxiaoNeural"` | Yes    | n/a             | n/a      | Edge TTS voice name used for read-aloud. Empty values are healed to the compiled default on load. |
+| `MAX_TTS_CHARS` | `1000`             | No       | Prompt contract: the truncation width is baked into `voice.rs`, and the frontend's `ttsReadableText` deliberately does not truncate so the backend stays the single source of truth. Exposing it would let the two layers drift. | — | How many characters of a reply are sent to the TTS endpoint. Longer replies are cut at the nearest word boundary; the read-aloud never blocks on an overlong reply. |
 
 ### `[debug]`
 

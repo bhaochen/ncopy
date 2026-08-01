@@ -33,6 +33,12 @@ scraper = "0.27"
 dom_smoothie = "0.18"
 tokio = { version = "1.52.3", features = ["macros", "process", "time", "sync"] }
 futures-util = "0.3.32"
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
+# rustls 0.23 no longer ships a default crypto backend; the tungstenite
+# WebSocket needs one explicitly enabled (ring) so `tts_speak` can open the
+# Edge TTS WSS connection. reqwest here uses native-tls and never installs a
+# rustls provider, so voice.rs installs it on first use.
+rustls = { version = "0.23", features = ["ring"] }
 tokio-util = "0.7"
 toml = "1.0"
 toml_edit = "0.25"

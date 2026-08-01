@@ -65,6 +65,7 @@ import type { AttachedImage } from './types/image';
 import { MAX_IMAGE_SIZE_BYTES } from './types/image';
 import type { ConversationSummary } from './types/history';
 import { useConfig } from './contexts/ConfigContext';
+import { ttsReadableText } from './utils/ttsReadableText';
 import {
   COMMANDS,
   REPLACEABLE_COMMANDS,
@@ -724,6 +725,19 @@ function App() {
   );
 
   /**
+   * Mirror of `config.voice.enabled` (`/voice` toggle), so the turn-completion
+   * read-aloud path and the `/voice` dispatch avoid a `config` dependency.
+   */
+  const voiceEnabledRef = useRef(false);
+
+  /**
+   * Serializes `tts_speak` invokes so overlapping finished replies never speak
+   * over each other: each read-aloud chains onto the previous one, failures
+   * swallowed so a dead Edge connection cannot stall later turns.
+   */
+  const ttsChainRef = useRef(Promise.resolve());
+
+  /**
    * Persist a completed user/assistant turn to SQLite.
    *
    * When auto-save is on and create-on-submit already stored the user half,
@@ -749,7 +763,8 @@ function App() {
             if (conversationIdRef.current == null) {
               // Merge final assistant fields into the live list: Done may race
               // React state for searchFailReason, so prefer onTurnComplete args.
-              const base = messagesRef.current;
+              // Status turns (`/voice` confirmations) are never persisted.
+              const base = messagesRef.current.filter((m) => !m.statusOnly);
               // Stamp final assistant fields onto the live list. User rows stay
               // as-is; Done races only matter for the assistant payload.
               const merged = base.map((m) =>
@@ -829,6 +844,27 @@ function App() {
         // (both go through `cleanForRender`); the in-memory content is raw.
         void performReplaceRef.current?.(cleanForRender(assistantMsg.content));
       }
+
+      // `/voice` read-aloud: speak the finished reply through Edge TTS. Error
+      // callouts and empty replies are skipped; the markdown is flattened to
+      // plain sentences first. Invokes chain on `ttsChainRef` so two finished
+      // replies never overlap, and failures are swallowed so a dead Edge
+      // connection cannot stall later turns or surface an unhandled rejection.
+      if (
+        voiceEnabledRef.current &&
+        assistantMsg.content &&
+        !assistantMsg.errorKind
+      ) {
+        const readable = ttsReadableText(assistantMsg.content);
+        if (readable) {
+          // The chain is always resolved when we get here (each assignment ends
+          // in catch + `.then(() => undefined)`), so no leading catch is needed.
+          ttsChainRef.current = ttsChainRef.current
+            .then(() => invoke('tts_speak', { text: readable }))
+            .catch(() => {})
+            .then(() => undefined);
+        }
+      }
     },
     [conversationIdRef, persistAssistant, persistTurn, requestTitle, save],
   );
@@ -844,6 +880,7 @@ function App() {
     loadMessages,
     getTraceConversationId,
     addOcrTurn,
+    addStatusTurn,
     retryMessageWithOversized,
     retryMessage,
     updateErroredMessageModel,
@@ -1039,6 +1076,7 @@ function App() {
     autoCloseRef.current = config.behavior.autoClose;
     autoSaveRef.current = config.behavior.autoSaveConversations;
     autoSaveNoticeAckRef.current = config.behavior.autoSaveNoticeAcknowledged;
+    voiceEnabledRef.current = config.voice.enabled;
   }, [config]);
 
   // Mirror model for the auto-save write path (identity lives on conversationIdRef).
@@ -3376,6 +3414,30 @@ function App() {
     return () => document.removeEventListener('mousedown', handler);
   }, [isExportOpen]);
 
+  /**
+   * `/voice` read-aloud toggle. Local-only: flips `[voice].enabled` through
+   * `set_config_field` (never touches the model), then shows an in-chat status
+   * confirmation. The status turn is never persisted and never spoken. On a
+   * failed write the ref is left untouched so the UI state matches the file.
+   */
+  const handleVoiceToggle = useCallback(async () => {
+    const target = !voiceEnabledRef.current;
+    try {
+      await invoke('set_config_field', {
+        section: 'voice',
+        key: 'enabled',
+        value: target,
+      });
+      voiceEnabledRef.current = target;
+      addStatusTurn(
+        '/voice',
+        target ? 'Voice on — replies will be read aloud.' : 'Voice off.',
+      );
+    } catch {
+      addStatusTurn('/voice', "Voice couldn't be toggled. Try again.");
+    }
+  }, [addStatusTurn]);
+
   const handleSubmit = useCallback(() => {
     if (
       (query.trim().length === 0 && attachedImages.length === 0) ||
@@ -3405,6 +3467,21 @@ function App() {
     if (hasExtract && attachedImages.length === 0 && !hasScreen) {
       setCaptureError('Attach an image or add /screen to extract text from.');
       setShakeAskBar(true);
+      return;
+    }
+
+    // `/voice` read-aloud toggle: standalone only (no combining with other
+    // commands). Local-only — flips `[voice].enabled` and never touches the
+    // model — so it bypasses every capability/env gate below. The in-chat
+    // confirmation is a status turn: not persisted, not spoken.
+    if (found.has('/voice') && found.size === 1) {
+      setQuery('');
+      setSelectedContext(null);
+      for (const img of attachedImages) {
+        URL.revokeObjectURL(img.blobUrl);
+      }
+      setAttachedImages([]);
+      void handleVoiceToggle();
       return;
     }
 
@@ -3633,6 +3710,7 @@ function App() {
     handleScreenSubmit,
     handleExtractSubmit,
     handleUtilityOcrSubmit,
+    handleVoiceToggle,
     selectedContext,
     setSelectedContext,
     attachedImages,

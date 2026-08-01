@@ -12156,4 +12156,312 @@ describe('App', () => {
       expect(invoke).toHaveBeenCalledWith('open_settings');
     });
   });
+
+  describe('voice read-aloud (/voice)', () => {
+    const VOICE_ON_CONFIG = {
+      ...DEFAULT_CONFIG,
+      voice: { enabled: true },
+    };
+
+    function voiceTree(config: typeof DEFAULT_CONFIG) {
+      return (
+        <ConfigProviderForTest value={config}>
+          <App />
+        </ConfigProviderForTest>
+      );
+    }
+
+    it('toggles voice on with /voice and shows an in-chat confirmation', async () => {
+      render(voiceTree(DEFAULT_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const textarea = getAskInput();
+      setAskValue('/voice');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith('set_config_field', {
+        section: 'voice',
+        key: 'enabled',
+        value: true,
+      });
+      expect(
+        screen.getByText('Voice on — replies will be read aloud.'),
+      ).toBeInTheDocument();
+    });
+
+    it('toggles voice off with /voice from an enabled config', async () => {
+      render(voiceTree(VOICE_ON_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const textarea = getAskInput();
+      setAskValue('/voice');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith('set_config_field', {
+        section: 'voice',
+        key: 'enabled',
+        value: false,
+      });
+      expect(screen.getByText('Voice off.')).toBeInTheDocument();
+    });
+
+    it('shows a failure confirmation when the voice write rejects', async () => {
+      render(voiceTree(DEFAULT_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      // A blanket mockRejectedValueOnce would be consumed by the async invokes
+      // still in flight after showOverlay (startup_safety, warm_up_model, ...),
+      // leaving set_config_field to resolve and the toggle to wrongly succeed.
+      // Reject only the voice write and defer everything else to the default
+      // implementation.
+      invoke.mockClear();
+      const defaultImpl = invoke.getMockImplementation();
+      invoke.mockImplementation((cmd, args) => {
+        if (cmd === 'set_config_field') {
+          return Promise.reject(new Error('write failed'));
+        }
+        return defaultImpl
+          ? defaultImpl(cmd, args)
+          : Promise.resolve(undefined);
+      });
+      const textarea = getAskInput();
+      setAskValue('/voice');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+
+      expect(
+        screen.getByText("Voice couldn't be toggled. Try again."),
+      ).toBeInTheDocument();
+    });
+
+    it('does not treat /voice as a model turn (no ask_model)', async () => {
+      render(voiceTree(DEFAULT_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      setAskValue('/voice');
+      fireEvent.keyDown(getAskInput(), { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+
+      expect(
+        invoke.mock.calls.filter((c) => c[0] === 'ask_model'),
+      ).toHaveLength(0);
+    });
+
+    it('clears attached images when /voice toggles', async () => {
+      enableChannelCaptureWithResponses({
+        save_image_command: '/tmp/staged/img1.jpg',
+      });
+      render(voiceTree(DEFAULT_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      const textarea = getAskInput();
+      const file = new File(['fake-img-data'], 'photo.png', {
+        type: 'image/png',
+      });
+      await act(async () => {
+        fireEvent.paste(textarea, {
+          clipboardData: {
+            getData: () => '',
+            items: [{ type: 'image/png', getAsFile: () => file }],
+          },
+        });
+      });
+      await vi.waitFor(() => {
+        expect(
+          screen.getByRole('list', { name: /attached images/i }),
+        ).toBeInTheDocument();
+      });
+
+      const revokeSpy = vi.mocked(URL.revokeObjectURL);
+      revokeSpy.mockClear();
+      invoke.mockClear();
+
+      setAskValue('/voice');
+      fireEvent.keyDown(getAskInput(), { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+
+      expect(revokeSpy).toHaveBeenCalled();
+      expect(
+        screen.queryByRole('list', { name: /attached images/i }),
+      ).toBeNull();
+    });
+
+    it('reads a finished reply aloud via tts_speak when voice is enabled', async () => {
+      render(voiceTree(VOICE_ON_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const textarea = getAskInput();
+      setAskValue('hello');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+      act(() => {
+        getLastChannel()?.simulateMessage({
+          type: 'Token',
+          data: 'Hello **world**',
+        });
+        getLastChannel()?.simulateMessage({ type: 'Done' });
+      });
+      await act(async () => {});
+
+      // Markdown flattened to plain speakable text.
+      expect(invoke).toHaveBeenCalledWith('tts_speak', { text: 'Hello world' });
+    });
+
+    it('keeps the speak chain alive when tts_speak rejects', async () => {
+      render(voiceTree(VOICE_ON_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const defaultImpl = invoke.getMockImplementation();
+      invoke.mockImplementation((cmd, args) => {
+        if (cmd === 'tts_speak') {
+          return Promise.reject(new Error('edge down'));
+        }
+        return defaultImpl
+          ? defaultImpl(cmd, args)
+          : Promise.resolve(undefined);
+      });
+
+      // First turn: the TTS invoke rejects; the chain swallows the failure.
+      const textarea = getAskInput();
+      setAskValue('hello');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+      act(() => {
+        getLastChannel()?.simulateMessage({ type: 'Token', data: 'first' });
+        getLastChannel()?.simulateMessage({ type: 'Done' });
+      });
+      await act(async () => {});
+
+      // Second turn: the chain still runs tts_speak (no poisoning).
+      setAskValue('again');
+      fireEvent.keyDown(getAskInput(), { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+      act(() => {
+        getLastChannel()?.simulateMessage({ type: 'Token', data: 'second' });
+        getLastChannel()?.simulateMessage({ type: 'Done' });
+      });
+      await act(async () => {});
+
+      expect(
+        invoke.mock.calls.filter((c) => c[0] === 'tts_speak'),
+      ).toHaveLength(2);
+    });
+
+    it('does not speak when voice is disabled', async () => {
+      render(voiceTree(DEFAULT_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const textarea = getAskInput();
+      setAskValue('hello');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+      act(() => {
+        getLastChannel()?.simulateMessage({ type: 'Token', data: 'hi' });
+        getLastChannel()?.simulateMessage({ type: 'Done' });
+      });
+      await act(async () => {});
+
+      expect(
+        invoke.mock.calls.filter((c) => c[0] === 'tts_speak'),
+      ).toHaveLength(0);
+    });
+
+    it('does not speak error callouts when voice is enabled', async () => {
+      render(voiceTree(VOICE_ON_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const textarea = getAskInput();
+      setAskValue('hi');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+      act(() => {
+        getLastChannel()?.simulateMessage({
+          type: 'Error',
+          data: { kind: 'EngineStartFailed', message: 'load failed' },
+        });
+      });
+      await act(async () => {});
+
+      expect(
+        invoke.mock.calls.filter((c) => c[0] === 'tts_speak'),
+      ).toHaveLength(0);
+    });
+
+    it('does not speak an empty reply (Done without tokens)', async () => {
+      render(voiceTree(VOICE_ON_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const textarea = getAskInput();
+      setAskValue('hello');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+      act(() => {
+        getLastChannel()?.simulateMessage({ type: 'Done' });
+      });
+      await act(async () => {});
+
+      expect(
+        invoke.mock.calls.filter((c) => c[0] === 'tts_speak'),
+      ).toHaveLength(0);
+    });
+
+    it('does not speak a reply with no speakable text (code only)', async () => {
+      render(voiceTree(VOICE_ON_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const textarea = getAskInput();
+      setAskValue('hello');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+      act(() => {
+        getLastChannel()?.simulateMessage({
+          type: 'Token',
+          data: '```\nconst x = 1;\n```',
+        });
+        getLastChannel()?.simulateMessage({ type: 'Done' });
+      });
+      await act(async () => {});
+
+      expect(
+        invoke.mock.calls.filter((c) => c[0] === 'tts_speak'),
+      ).toHaveLength(0);
+    });
+
+    it('does not speak status turns from /voice itself', async () => {
+      render(voiceTree(VOICE_ON_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      setAskValue('/voice');
+      fireEvent.keyDown(getAskInput(), { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+
+      expect(
+        invoke.mock.calls.filter((c) => c[0] === 'tts_speak'),
+      ).toHaveLength(0);
+    });
+  });
 });

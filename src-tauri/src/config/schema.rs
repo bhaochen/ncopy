@@ -25,9 +25,9 @@ use super::defaults::{
     DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TEXT_BASE_PX, DEFAULT_TEXT_FONT_WEIGHT,
     DEFAULT_TEXT_LETTER_SPACING_PX, DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TRACE_RETENTION_DAYS,
     DEFAULT_UPDATER_AUTO_CHECK, DEFAULT_UPDATER_CHECK_INTERVAL_HOURS, DEFAULT_UPDATER_MANIFEST_URL,
-    PROVIDER_ID_BUILTIN, PROVIDER_ID_NVIDIA, PROVIDER_ID_OLLAMA, PROVIDER_ID_OPENCODE,
-    PROVIDER_KIND_BUILTIN, PROVIDER_KIND_NVIDIA, PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI,
-    PROVIDER_KIND_OPENCODE,
+    DEFAULT_VOICE_EDGE_VOICE, DEFAULT_VOICE_ENABLED, PROVIDER_ID_BUILTIN, PROVIDER_ID_NVIDIA,
+    PROVIDER_ID_OLLAMA, PROVIDER_ID_OPENCODE, PROVIDER_KIND_BUILTIN, PROVIDER_KIND_NVIDIA,
+    PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI, PROVIDER_KIND_OPENCODE,
 };
 
 /// A single configured inference provider. Exactly one is active at a time
@@ -444,6 +444,30 @@ impl Default for UpdaterSection {
     }
 }
 
+/// Read-aloud (Edge TTS) configuration, toggled by the `/voice` slash command.
+///
+/// When `enabled`, Thuki speaks each finished assistant reply aloud using
+/// Microsoft Edge's read-aloud service (no extra setup, keyless). The voice is
+/// a Microsoft Edge neural voice name such as `"zh-CN-XiaoxiaoNeural"`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct VoiceSection {
+    /// When `true`, every completed assistant reply is read aloud via Edge TTS.
+    pub enabled: bool,
+    /// Edge TTS voice name used for read-aloud. An empty value is healed to the
+    /// compiled default by the loader.
+    pub voice: String,
+}
+
+impl Default for VoiceSection {
+    fn default() -> Self {
+        Self {
+            enabled: DEFAULT_VOICE_ENABLED,
+            voice: DEFAULT_VOICE_EDGE_VOICE.to_string(),
+        }
+    }
+}
+
 /// Top-level application configuration. Managed Tauri state; every subsystem
 /// reads from `State<RwLock<AppConfig>>` and nowhere else. The loader resolves all
 /// empty strings and out-of-bounds numerics to compiled defaults before the
@@ -459,4 +483,6 @@ pub struct AppConfig {
     pub debug: DebugSection,
     #[serde(default)]
     pub updater: UpdaterSection,
+    #[serde(default)]
+    pub voice: VoiceSection,
 }

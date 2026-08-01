@@ -2064,6 +2064,42 @@ describe('useModel', () => {
     });
   });
 
+  describe('addStatusTurn', () => {
+    it('appends a statusOnly user/assistant pair', async () => {
+      const { result } = renderHook(() => useModel(''));
+
+      act(() => {
+        result.current.addStatusTurn(
+          '/voice',
+          'Voice on — replies will be read aloud.',
+        );
+      });
+
+      expect(result.current.messages).toHaveLength(2);
+      expect(result.current.messages[0]).toMatchObject({
+        role: 'user',
+        content: '/voice',
+        statusOnly: true,
+      });
+      expect(result.current.messages[1]).toMatchObject({
+        role: 'assistant',
+        content: 'Voice on — replies will be read aloud.',
+        statusOnly: true,
+      });
+    });
+
+    it('does not call onTurnComplete (status turns are never persisted)', async () => {
+      const onTurnComplete = vi.fn();
+      const { result } = renderHook(() => useModel('', onTurnComplete));
+
+      act(() => {
+        result.current.addStatusTurn('/voice', 'Voice off.');
+      });
+
+      expect(onTurnComplete).not.toHaveBeenCalled();
+    });
+  });
+
   // ─── retryMessageWithOversized (issue #296) ─────────────────────────────────
 
   describe('retryMessageWithOversized()', () => {

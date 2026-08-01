@@ -332,6 +332,31 @@ const EXPLAIN_ICON = (
   </svg>
 );
 
+/** Speaker icon for the /voice read-aloud toggle. */
+const VOICE_ICON = (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+  >
+    <path
+      d="M2 6v4h2.5L8 13V3L4.5 6H2z"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinejoin="round"
+    />
+    <path
+      d="M10 5.5c.6.6 1 1.5 1 2.5s-.4 1.9-1 2.5M12 4c1.2 1.2 1.8 2.5 1.8 4S13.2 10.8 12 12"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
 /** Image/landscape icon for /searchimage command. */
 const IMAGE_SEARCH_ICON = (
   <svg
@@ -389,6 +414,8 @@ function iconForTrigger(trigger: string): React.ReactNode {
       return EXPLAIN_ICON;
     case '/extract':
       return EXTRACT_ICON;
+    case '/voice':
+      return VOICE_ICON;
     default:
       return SCREEN_ICON;
   }

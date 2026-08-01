@@ -119,11 +119,21 @@ describe('COMMANDS registry', () => {
     expect(cmd?.promptTemplate).toContain('$LANG');
   });
 
-  it('/screen and /think have no promptTemplate', () => {
+  it('/screen, /think, and /voice have no promptTemplate', () => {
     const screen = COMMANDS.find((c: Command) => c.trigger === '/screen');
     const think = COMMANDS.find((c: Command) => c.trigger === '/think');
+    const voice = COMMANDS.find((c: Command) => c.trigger === '/voice');
     expect(screen?.promptTemplate).toBeUndefined();
     expect(think?.promptTemplate).toBeUndefined();
+    expect(voice?.promptTemplate).toBeUndefined();
+  });
+
+  it('includes the /voice command', () => {
+    const cmd = COMMANDS.find((c: Command) => c.trigger === '/voice');
+    expect(cmd).toBeDefined();
+    expect(cmd?.label).toBe('/voice');
+    expect(cmd?.description.length).toBeGreaterThan(0);
+    expect(cmd?.docs.examples.length).toBeGreaterThan(0);
   });
 });
 

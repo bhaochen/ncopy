@@ -33,6 +33,7 @@ pub mod startup_guard;
 pub mod subscribe;
 pub mod trace;
 pub mod updater;
+pub mod voice;
 pub mod warmup;
 pub mod websearch;
 
@@ -3082,6 +3083,8 @@ pub fn run() {
         export::prompt_and_save_chat_export,
         #[cfg(not(coverage))]
         replace::replace_selection,
+        #[cfg(not(coverage))]
+        voice::tts_speak,
         notify_overlay_hidden,
         set_overlay_minimized,
         notify_frontend_ready,

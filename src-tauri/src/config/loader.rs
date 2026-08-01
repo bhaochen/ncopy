@@ -34,8 +34,8 @@ use super::defaults::{
     DEFAULT_QUOTE_MAX_DISPLAY_LINES, DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TEXT_BASE_PX,
     DEFAULT_TEXT_FONT_WEIGHT, DEFAULT_TEXT_LETTER_SPACING_PX, DEFAULT_TEXT_LINE_HEIGHT,
     DEFAULT_TRACE_RETENTION_DAYS, DEFAULT_UPDATER_CHECK_INTERVAL_HOURS,
-    DEFAULT_UPDATER_MANIFEST_URL, HISTORY_RETENTION_FOREVER, MAX_DISMISSED_MEMORY_FIT_MODELS,
-    SLASH_COMMAND_PROMPT_APPENDIX, TRACE_RETENTION_FOREVER,
+    DEFAULT_UPDATER_MANIFEST_URL, DEFAULT_VOICE_EDGE_VOICE, HISTORY_RETENTION_FOREVER,
+    MAX_DISMISSED_MEMORY_FIT_MODELS, SLASH_COMMAND_PROMPT_APPENDIX, TRACE_RETENTION_FOREVER,
 };
 use super::error::ConfigError;
 use super::schema::AppConfig;
@@ -277,6 +277,12 @@ pub(crate) fn resolve(config: &mut AppConfig) {
     );
     if config.updater.manifest_url.trim().is_empty() {
         config.updater.manifest_url = DEFAULT_UPDATER_MANIFEST_URL.to_string();
+    }
+
+    // Voice section: `enabled` is a boolean (any value valid); an empty voice
+    // name falls back to the compiled default.
+    if config.voice.voice.trim().is_empty() {
+        config.voice.voice = DEFAULT_VOICE_EDGE_VOICE.to_string();
     }
 }
 

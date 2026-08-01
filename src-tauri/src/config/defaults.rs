@@ -672,6 +672,9 @@ pub const ALLOWED_FIELDS: &[(&str, &str)] = &[
     ("updater", "auto_check"),
     ("updater", "check_interval_hours"),
     ("updater", "manifest_url"),
+    // [voice]
+    ("voice", "enabled"),
+    ("voice", "voice"),
 ];
 
 /// Authoritative allowlist of section names accepted by `reset_config`.
@@ -684,6 +687,7 @@ pub const ALLOWED_SECTIONS: &[&str] = &[
     "behavior",
     "debug",
     "updater",
+    "voice",
 ];
 
 // Updater
@@ -697,6 +701,19 @@ pub const BOUNDS_UPDATER_CHECK_INTERVAL_HOURS: (u64, u64) = (1, 168);
 /// URL of the Tauri updater JSON manifest. Points to the latest GitHub release asset.
 pub const DEFAULT_UPDATER_MANIFEST_URL: &str =
     "https://github.com/quiet-node/thuki/releases/latest/download/latest.json";
+
+// Voice (read-aloud)
+/// Whether Thuki reads each finished assistant reply aloud via Edge TTS. The
+/// `/voice` slash command toggles this in place of a Settings row.
+pub const DEFAULT_VOICE_ENABLED: bool = false;
+/// Edge TTS voice name used for read-aloud. A natural Chinese female voice,
+/// matching the model's usual reply language for Chinese-speaking users.
+pub const DEFAULT_VOICE_EDGE_VOICE: &str = "zh-CN-XiaoxiaoNeural";
+/// Baked-in cap on characters spoken per reply. Edge's read-aloud endpoint
+/// drops or errors on oversized single requests, so a long answer is cut at
+/// the last sentence boundary inside this window rather than being sent whole.
+/// Not user-tunable: it is a protocol cap imposed by the external service.
+pub const MAX_TTS_CHARS: usize = 1000;
 
 // Email capture
 /// Public proxy endpoint that the optional "Help shape Thuki" email ask POSTs to.

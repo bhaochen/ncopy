@@ -74,6 +74,14 @@ interface RawAppConfig {
     history_retention_days: number;
     auto_save_notice_acknowledged: boolean;
   };
+  /**
+   * Optional for backward compatibility with older `get_config` test payloads;
+   * the loader always resolves a `[voice]` section, so production payloads
+   * always carry it. `transform` falls back to the compiled default.
+   */
+  voice?: {
+    enabled: boolean;
+  };
 }
 
 /** Camel-cased, frontend-friendly view of the configuration. */
@@ -124,7 +132,21 @@ export interface AppConfig {
     /** When true, one-shot auto-save chat notice has been dismissed forever. */
     autoSaveNoticeAcknowledged: boolean;
   };
+  voice: {
+    /**
+     * When true, each finished assistant reply is read aloud via Edge TTS
+     * (toggled with the `/voice` slash command).
+     */
+    enabled: boolean;
+  };
 }
+
+/**
+ * Compiled default for `[voice].enabled` (mirrors `DEFAULT_VOICE_ENABLED` in
+ * `src-tauri/src/config/defaults.rs`). Voice is off until the user toggles the
+ * `/voice` slash command.
+ */
+const DEFAULT_VOICE_ENABLED = false;
 
 /** Derives the Ollama provider's base URL from the providers list. Empty when
  * no Ollama provider is configured (the loader always seeds one, so this only
@@ -177,6 +199,11 @@ function transform(raw: RawAppConfig): AppConfig {
       autoSaveConversations: raw.behavior.auto_save_conversations,
       historyRetentionDays: raw.behavior.history_retention_days,
       autoSaveNoticeAcknowledged: raw.behavior.auto_save_notice_acknowledged,
+    },
+    voice: {
+      // `raw.voice` is optional only because older test payloads omit it;
+      // production `get_config` responses always carry the section.
+      enabled: raw.voice?.enabled ?? DEFAULT_VOICE_ENABLED,
     },
   };
 }
@@ -327,5 +354,8 @@ export const DEFAULT_CONFIG: AppConfig = {
     autoSaveConversations: true,
     historyRetentionDays: -1,
     autoSaveNoticeAcknowledged: false,
+  },
+  voice: {
+    enabled: DEFAULT_VOICE_ENABLED,
   },
 };

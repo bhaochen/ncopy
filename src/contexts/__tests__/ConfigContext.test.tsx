@@ -36,6 +36,7 @@ function Probe() {
         {String(config.behavior.autoReplace)}
       </div>
       <div data-testid="auto-close">{String(config.behavior.autoClose)}</div>
+      <div data-testid="voice-enabled">{String(config.voice.enabled)}</div>
     </>
   );
 }
@@ -152,6 +153,59 @@ describe('ConfigContext', () => {
       // section: snake_case on the wire becomes camelCase in the app config.
       expect(screen.getByTestId('auto-replace').textContent).toBe('true');
       expect(screen.getByTestId('auto-close').textContent).toBe('true');
+      // This payload predates the `[voice]` section: transform must fall back
+      // to the compiled default (disabled) instead of crashing.
+      expect(screen.getByTestId('voice-enabled').textContent).toBe('false');
+    });
+
+    it('maps the voice section from snake_case to camelCase', async () => {
+      invoke.mockResolvedValueOnce({
+        inference: {
+          active_provider: 'builtin',
+          providers: [
+            { id: 'builtin', kind: 'builtin', base_url: '' },
+            {
+              id: 'ollama',
+              kind: 'ollama',
+              base_url: 'http://127.0.0.1:11434',
+            },
+          ],
+        },
+        prompt: { system: '' },
+        window: {
+          overlay_width: 600,
+          max_chat_height: 648,
+          max_images: 3,
+          text_base_px: 15,
+          text_line_height: 1.5,
+          text_letter_spacing_px: 0,
+          text_font_weight: 500,
+        },
+        quote: {
+          max_display_lines: 4,
+          max_display_chars: 300,
+          max_context_length: 4096,
+        },
+        behavior: {
+          auto_replace: false,
+          auto_close: false,
+          auto_search: true,
+          search_notice_acknowledged: false,
+          auto_save_conversations: true,
+          history_retention_days: -1,
+          auto_save_notice_acknowledged: false,
+        },
+        voice: { enabled: true },
+      });
+
+      render(
+        <ConfigProvider>
+          <Probe />
+        </ConfigProvider>,
+      );
+      await act(async () => {});
+
+      expect(screen.getByTestId('voice-enabled').textContent).toBe('true');
     });
 
     it('derives an empty Ollama URL when no Ollama provider is configured', async () => {
