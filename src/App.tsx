@@ -3508,10 +3508,10 @@ function App() {
       voiceEnabledRef.current = target;
       addStatusTurn(
         '/live',
-        target ? 'Voice on — replies will be read aloud.' : 'Voice off.',
+        target ? 'Live on — replies will be read aloud by the mascot.' : 'Live off.',
       );
     } catch {
-      addStatusTurn('/live', "Voice couldn't be toggled. Try again.");
+      addStatusTurn('/live', "Live couldn't be toggled. Try again.");
     }
   }, [addStatusTurn]);
 

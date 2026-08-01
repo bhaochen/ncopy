@@ -2071,7 +2071,7 @@ describe('useModel', () => {
       act(() => {
         result.current.addStatusTurn(
           '/live',
-          'Voice on — replies will be read aloud.',
+          'Live on — replies will be read aloud by the mascot.',
         );
       });
 
@@ -2083,7 +2083,7 @@ describe('useModel', () => {
       });
       expect(result.current.messages[1]).toMatchObject({
         role: 'assistant',
-        content: 'Voice on — replies will be read aloud.',
+        content: 'Live on — replies will be read aloud by the mascot.',
         statusOnly: true,
       });
     });
@@ -2093,7 +2093,7 @@ describe('useModel', () => {
       const { result } = renderHook(() => useModel('', onTurnComplete));
 
       act(() => {
-        result.current.addStatusTurn('/live', 'Voice off.');
+        result.current.addStatusTurn('/live', 'Live off.');
       });
 
       expect(onTurnComplete).not.toHaveBeenCalled();

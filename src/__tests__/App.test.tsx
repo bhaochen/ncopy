@@ -12404,7 +12404,7 @@ describe('App', () => {
         value: true,
       });
       expect(
-        screen.getByText('Voice on — replies will be read aloud.'),
+        screen.getByText('Live on — replies will be read aloud by the mascot.'),
       ).toBeInTheDocument();
     });
 
@@ -12424,7 +12424,7 @@ describe('App', () => {
         key: 'enabled',
         value: false,
       });
-      expect(screen.getByText('Voice off.')).toBeInTheDocument();
+      expect(screen.getByText('Live off.')).toBeInTheDocument();
     });
 
     it('shows a failure confirmation when the voice write rejects', async () => {
@@ -12453,7 +12453,7 @@ describe('App', () => {
       await act(async () => {});
 
       expect(
-        screen.getByText("Voice couldn't be toggled. Try again."),
+        screen.getByText("Live couldn't be toggled. Try again."),
       ).toBeInTheDocument();
     });
 
