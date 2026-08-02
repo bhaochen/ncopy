@@ -125,6 +125,9 @@ async fn transcode_to_wav(mp3: &Path, wav: &Path) -> Result<(), String> {
 fn streamer_command() -> TokioCommand {
     let mut cmd = TokioCommand::new(flashhead_dir().join(".venv").join("bin").join("python"));
     cmd.arg(stream_script_path());
+    // `flash_head.inference` reads its config via a relative path, so the
+    // process must run from the FlashHead project root.
+    cmd.current_dir(flashhead_dir());
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
     cmd.env("CUDA_VISIBLE_DEVICES", "0");
