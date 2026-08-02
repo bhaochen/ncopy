@@ -12060,6 +12060,28 @@ describe('App', () => {
   });
 
   describe('mascot stage', () => {
+    // Live segments play through `toPlayableVideoSrc`, which fetches the
+    // asset URL and wraps the body in a blob URL. Stub fetch so the happy
+    // path resolves, and rebuild the blob-URL mocks here: the global
+    // afterEach restores (empties) them after every test.
+    let blobUrlCounter = 0;
+    beforeEach(() => {
+      blobUrlCounter = 0;
+      URL.createObjectURL = vi.fn(
+        () => `blob:http://localhost/fake-blob-${++blobUrlCounter}`,
+      );
+      URL.revokeObjectURL = vi.fn();
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          blob: async () => new Blob(['fake-video'], { type: 'video/mp4' }),
+        })),
+      );
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
     it('plays listening while the ask bar is focused and idle when it is not', async () => {
       render(<App />);
       await act(async () => {});
@@ -12129,25 +12151,32 @@ describe('App', () => {
       const mascot = screen.getByTestId('mascot-stage');
 
       act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
         emitTauriEvent('thuki://mascot-live-segment', {
           run: 1,
           path: '/tmp/thuki/live.mp4',
+          durSecs: 2.88,
         });
       });
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
 
-      const liveVideo = document.querySelector(
-        'video.mascot-stage-live-video',
-      );
+      const liveVideo = document.querySelector('video.mascot-stage-live-video');
       expect(liveVideo).not.toBeNull();
       expect(liveVideo).toHaveAttribute(
         'src',
-        convertFileSrc('/tmp/thuki/live.mp4'),
+        'blob:http://localhost/fake-blob-1',
       );
+      // The segment is pulled over the asset protocol before playback; the
+      // blob URL stays alive until the segment finishes.
+      expect(fetch).toHaveBeenCalledWith(convertFileSrc('/tmp/thuki/live.mp4'));
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled();
     });
 
-    it('plays queued segments back-to-back then returns to idle', async () => {
+    it('plays queued segments back-to-back then holds the last frame until done', async () => {
       render(<App />);
       await act(async () => {});
       await showOverlay();
@@ -12156,23 +12185,26 @@ describe('App', () => {
       fireEvent.focusOut(getAskInput());
       await act(async () => {});
       act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
         emitTauriEvent('thuki://mascot-live-segment', {
           run: 1,
           path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
         });
         emitTauriEvent('thuki://mascot-live-segment', {
           run: 1,
           path: '/tmp/thuki/live-2.mp4',
+          durSecs: 2.88,
         });
       });
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
 
       const first = document.querySelector('video.mascot-stage-live-video')!;
-      expect(first).toHaveAttribute(
-        'src',
-        convertFileSrc('/tmp/thuki/live-1.mp4'),
-      );
+      expect(first).toHaveAttribute('src', 'blob:http://localhost/fake-blob-1');
 
       // The first segment ends → the queued second segment rebuilds the video
       // element (liveKey bump) and plays next.
@@ -12182,13 +12214,398 @@ describe('App', () => {
       expect(second).not.toBe(first);
       expect(second).toHaveAttribute(
         'src',
-        convertFileSrc('/tmp/thuki/live-2.mp4'),
+        'blob:http://localhost/fake-blob-2',
+      );
+      // The finished segment's blob URL was released on `ended`.
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-1',
       );
 
-      // The last segment ends → nothing left in the queue → idle.
+      // The last segment ends while the pipeline is still generating the next
+      // one: the stage holds the last frame instead of snapping back to idle.
       fireEvent.ended(second);
       await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const held = document.querySelector('video.mascot-stage-live-video')!;
+      expect(held).toBe(second);
+      // The held frame's blob URL stays alive — it is revoked on `done`.
+      expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-2',
+      );
+
+      // `done` closes the run: no more segments, the held frame is released
+      // and the stage returns to idle.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-done', 1);
+      });
+      await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-2',
+      );
+    });
+
+    it('resumes from the held frame when the next segment arrives', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      // Tail segment ends while segment 2 is still generating: hold frame.
+      const first = document.querySelector('video.mascot-stage-live-video')!;
+      fireEvent.ended(first);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      // The late segment arrives → it jumps straight in (liveKey bump).
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-2.mp4',
+          durSecs: 2.88,
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const second = document.querySelector('video.mascot-stage-live-video')!;
+      expect(second).not.toBe(first);
+      expect(second).toHaveAttribute(
+        'src',
+        'blob:http://localhost/fake-blob-2',
+      );
+      // The held segment's blob URL was released once it stopped playing.
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-1',
+      );
+
+      // The resumed tail holds again until `done` closes the run.
+      fireEvent.ended(second);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-done', 1);
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+    });
+
+    it('returns to idle when done arrives before the tail segment ends', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      // `done` lands mid-playback (generation outran the player): no more
+      // segments, but the current one keeps playing.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-done', 1);
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      // The tail segment ends → the run is over → idle immediately.
+      const video = document.querySelector('video.mascot-stage-live-video')!;
+      fireEvent.ended(video);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-1',
+      );
+    });
+
+    it('prebuffers long replies until generation can keep pace', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      // A long reply (60 s of audio): with the seeded rate of 0.85, the gate
+      // needs G ≥ (1 - 0.95·0.85)·60 ≈ 11.55 s before playback may start.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 60,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-2.mp4',
+          durSecs: 2.88,
+        });
+      });
+      await act(async () => {});
+      // 5.76 s generated < 11.55 s needed: still prebuffering, no video.
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+      const preVideo = document.querySelector('video.mascot-stage-live-video')!;
+      expect(preVideo.getAttribute('src')).toBeNull();
+
+      // The third segment crosses the threshold (G ≈ 8.64 ≥ needed) once the
+      // rate estimate converges (interval clamp 3 s → 0.96 content s/s): the
+      // show starts from the first queued segment.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-3.mp4',
+          durSecs: 2.88,
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const video = document.querySelector('video.mascot-stage-live-video')!;
+      expect(video).toHaveAttribute('src', 'blob:http://localhost/fake-blob-1');
+      // Prebuffered blob URLs were not revoked while the gate was closed.
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+    });
+
+    it('done during prebuffer starts playback unconditionally', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 60,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+
+      // `done` means no more segments are coming; everything is already
+      // generated, so the stage starts playing right away.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-done', 1);
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const video = document.querySelector('video.mascot-stage-live-video')!;
+      expect(video).toHaveAttribute('src', 'blob:http://localhost/fake-blob-1');
+
+      // The (final) segment ends → the run is over → idle.
+      fireEvent.ended(video);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+    });
+
+    it('starts playback when a late meta event crosses the threshold', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      // The first segment arrives before meta: no total yet, gate stays shut.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+
+      // A short reply's meta lands late but crosses the threshold at once.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const video = document.querySelector('video.mascot-stage-live-video')!;
+      expect(video).toHaveAttribute('src', 'blob:http://localhost/fake-blob-1');
+    });
+
+    it('a stray ended during prebuffer force-starts playback safely', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 60,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+
+      // A stray `ended` from the (unmounted) player element while the gate is
+      // shut: nothing is queued at liveIdx -1, so the defensive branch just
+      // starts the queued segment.
+      const video = document.querySelector('video.mascot-stage-live-video')!;
+      fireEvent.ended(video);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const started = document.querySelector('video.mascot-stage-live-video')!;
+      expect(started).toHaveAttribute(
+        'src',
+        'blob:http://localhost/fake-blob-1',
+      );
+    });
+
+    it('done after an error leaves the stage idle without crashing', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+
+      // The pipeline dies mid-show: queue drained, stage idle.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-error', 'streamer exited');
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+
+      // A late `done` arrives after the error; the surviving video element
+      // fires `ended` — nothing is queued, the stage stays idle.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-done', 1);
+      });
+      await act(async () => {});
+      const video = document.querySelector('video.mascot-stage-live-video')!;
+      fireEvent.ended(video);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+    });
+
+    it('handles segments without a duration via the done fallback', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      // A legacy streamer sends no `durSecs`: generated seconds stay 0, so
+      // the gate can never open on its own — `done` still starts the show.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-done', 1);
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const video = document.querySelector('video.mascot-stage-live-video')!;
+      expect(video).toHaveAttribute('src', 'blob:http://localhost/fake-blob-1');
+    });
+
+    it('done before any segment resolves renders an empty player safely', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      // `done` lands before the first segment's blob has resolved: the gate
+      // opens on an empty queue and the render must not throw.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 60,
+        });
+        emitTauriEvent('thuki://mascot-live-done', 1);
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+
+      // The queued segment resolves afterwards and starts playing.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
+        });
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const video = document.querySelector('video.mascot-stage-live-video')!;
+      expect(video).toHaveAttribute('src', 'blob:http://localhost/fake-blob-1');
     });
 
     it('a newer run resets the queue to its first segment', async () => {
@@ -12200,13 +12617,19 @@ describe('App', () => {
       fireEvent.focusOut(getAskInput());
       await act(async () => {});
       act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
         emitTauriEvent('thuki://mascot-live-segment', {
           run: 1,
           path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
         });
         emitTauriEvent('thuki://mascot-live-segment', {
           run: 1,
           path: '/tmp/thuki/live-2.mp4',
+          durSecs: 2.88,
         });
       });
       await act(async () => {});
@@ -12215,22 +12638,37 @@ describe('App', () => {
       // A fresh generation's first segment supersedes the stale queue even
       // mid-playback.
       act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 2,
+          totalSecs: 4,
+        });
         emitTauriEvent('thuki://mascot-live-segment', {
           run: 2,
           path: '/tmp/thuki/live-new.mp4',
+          durSecs: 2.88,
         });
       });
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
       const video = document.querySelector('video.mascot-stage-live-video')!;
-      expect(video).toHaveAttribute(
-        'src',
-        convertFileSrc('/tmp/thuki/live-new.mp4'),
+      expect(video).toHaveAttribute('src', 'blob:http://localhost/fake-blob-3');
+      // The stale run's blob URLs were released when the queue reset.
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-1',
+      );
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-2',
       );
 
       // The stale segments are gone: ending the new first segment has nothing
-      // to continue into (the old live-2 was discarded with the reset).
+      // to continue into (the old live-2 was discarded with the reset). The
+      // stage holds the last frame until `done` closes the new run.
       fireEvent.ended(video);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-done', 2);
+      });
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
     });
@@ -12246,9 +12684,14 @@ describe('App', () => {
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
 
       act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
         emitTauriEvent('thuki://mascot-live-segment', {
           run: 1,
           path: '/tmp/thuki/live.mp4',
+          durSecs: 2.88,
         });
       });
       await act(async () => {});
@@ -12259,6 +12702,10 @@ describe('App', () => {
       });
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+      // The aborted queue's blob URL was released.
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-1',
+      );
     });
 
     it('a live error mid-queue leaves the stage idle without crashing', async () => {
@@ -12270,13 +12717,19 @@ describe('App', () => {
       fireEvent.focusOut(getAskInput());
       await act(async () => {});
       act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
         emitTauriEvent('thuki://mascot-live-segment', {
           run: 1,
           path: '/tmp/thuki/live-1.mp4',
+          durSecs: 2.88,
         });
         emitTauriEvent('thuki://mascot-live-segment', {
           run: 1,
           path: '/tmp/thuki/live-2.mp4',
+          durSecs: 2.88,
         });
       });
       await act(async () => {});
@@ -12296,6 +12749,13 @@ describe('App', () => {
       fireEvent.ended(video as HTMLVideoElement);
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+      // Both queued segments' blob URLs were released on the error.
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-1',
+      );
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-2',
+      );
     });
 
     it('thinking preempts live while a response streams', async () => {
@@ -12305,9 +12765,14 @@ describe('App', () => {
 
       const mascot = screen.getByTestId('mascot-stage');
       act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
         emitTauriEvent('thuki://mascot-live-segment', {
           run: 1,
           path: '/tmp/thuki/live.mp4',
+          durSecs: 2.88,
         });
       });
       await act(async () => {});

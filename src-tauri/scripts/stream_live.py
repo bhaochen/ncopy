@@ -7,7 +7,8 @@ over a line protocol:
   stdin  -> {"cmd":"generate","wav":"<path>","out_dir":"<dir>","run":<int>}
   stdout <- one JSON line per event:
              {"event":"ready"}                       model loaded, service up
-             {"event":"segment","run":N,"path":P}    a playable mp4 segment
+             {"event":"meta","run":N,"total_secs":F} wav duration of the run
+             {"event":"segment","run":N,"path":P,"dur_secs":F}  a playable mp4 segment
              {"event":"done","run":N}                 generation finished
              {"event":"error","run":N,"msg":"..."}   generation failed
 
@@ -23,8 +24,11 @@ PATH), mirroring the official gradio streaming demo's chunk+segment structure.
 
 import json
 import os
+import queue
 import sys
+import threading
 import time
+import wave
 from collections import deque
 from pathlib import Path
 
@@ -41,7 +45,10 @@ if not os.path.isfile(COND_IMAGE):
 
 # 2 denoise steps: ~25.5 fps on a 4060 vs 25 fps playback (4 steps is ~23.6
 # fps and stalls the stream). Quality is lower but the mouth stays in sync.
-SAMPLE_STEPS = 2
+# Raise via THUKI_LIVE_STEPS for cleaner output on faster GPUs (3 steps on a
+# 4060-class card drops just under the playback rate, so long replies may
+# drift; short ones are fine).
+SAMPLE_STEPS = int(os.environ.get("THUKI_LIVE_STEPS", "2"))
 # Frames are produced in chunks of `slice_len`; group this many chunks into
 # one playable segment (~2.9 s) so encode overhead and segment switches stay
 # low while the first segment still lands within ~3 s.
@@ -73,6 +80,60 @@ def emit(obj: dict) -> None:
     print(json.dumps(obj, ensure_ascii=False), flush=True)
 
 
+class SegmentWriter:
+    """Encodes finished segments on a background thread so GPU inference never
+    stalls behind CPU h264 encoding. Encoding ~2.9 s of video synchronously
+    costs 1-3 s between segments; with a writer thread the model instead goes
+    straight into the next chunk and segments land back-to-back (encode is
+    still ordered and a segment event only fires once its mp4 is fully
+    muxed)."""
+
+    def __init__(self, fps: int, slice_len: int) -> None:
+        self._fps = fps
+        self._slice_len = slice_len
+        self._work: queue.Queue = queue.Queue(maxsize=2)
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def submit(self, frames, segment_path, wav_path, run) -> None:
+        """Queue a finished frame batch for encoding. Blocks if the writer is
+        two segments behind (back-pressure keeps memory bounded)."""
+        self._work.put((frames, segment_path, wav_path, run))
+
+    def drain(self) -> None:
+        """Block until every queued segment is encoded and emitted. Called
+        before `done` so the frontend never sees the run finish early."""
+        self._work.join()
+
+    def stop(self) -> None:
+        """Shut the writer thread down (must follow `drain`)."""
+        self._work.put(None)
+        self._thread.join(timeout=5)
+
+    def _run(self) -> None:
+        while True:
+            item = self._work.get()
+            if item is None:
+                self._work.task_done()
+                break
+            frames, segment_path, wav_path, run = item
+            try:
+                write_segment_mp4(frames, segment_path, wav_path, self._fps)
+                dur = len(frames) * self._slice_len / self._fps
+                emit(
+                    {
+                        "event": "segment",
+                        "run": run,
+                        "path": str(segment_path),
+                        "dur_secs": round(dur, 3),
+                    }
+                )
+            except Exception as e:
+                emit({"event": "error", "run": run, "msg": f"encode: {e}"})
+            finally:
+                self._work.task_done()
+
+
 def write_segment_mp4(frames, segment_path, wav_path, fps):
     """Writes `frames` (B,F,H,W,3 uint8 tensor batch) to an mp4 whose audio
     track is the 16 kHz slice in `wav_path`. Video-only first, then mux."""
@@ -96,6 +157,10 @@ def write_segment_mp4(frames, segment_path, wav_path, fps):
                 "-c:v", "copy",
                 "-c:a", "aac",
                 "-shortest",
+                # The asset protocol plays segments progressively: the moov
+                # atom must precede the mdat for the player to start without
+                # a round-trip seek (moov at EOF stalls WebKitGTK playback).
+                "-movflags", "+faststart",
                 str(segment_path),
             ],
             check=True,
@@ -110,7 +175,6 @@ def save_slice_wav(audio: np.ndarray, wav_path, sample_rate=16000):
     """Writes a float32 [-1,1] mono array as a 16-bit PCM wav (the slice that
     drove this segment, so its mp4 is self-contained with matching audio)."""
     samples = (np.clip(audio, -1.0, 1.0) * 32767).astype(np.int16)
-    import wave
 
     with wave.open(str(wav_path), "wb") as w:
         w.setnchannels(1)
@@ -206,6 +270,12 @@ def _generate(
     audio_end_idx,
     motion_frames_num,
 ):
+    # The run's total audio duration, so the frontend can decide how much to
+    # buffer before starting playback.
+    with wave.open(str(wav_path), "rb") as w:
+        total_secs = w.getnframes() / max(w.getframerate(), 1)
+    emit({"event": "meta", "run": run, "total_secs": round(total_secs, 3)})
+
     audio, _ = librosa.load(wav_path, sr=sample_rate, mono=True)
     remainder = len(audio) % slice_audio_len
     if remainder > 0:
@@ -228,6 +298,7 @@ def _generate(
     audio_dq = deque([0.0] * cached_audio_length_sum, maxlen=cached_audio_length_sum)
     frame_buffer = []
     emitted_segments = 0
+    writer = SegmentWriter(tgt_fps, slice_len)
     for chunk_idx, chunk in enumerate(slices):
         audio_dq.extend(chunk.tolist())
         audio_array = np.array(audio_dq)
@@ -238,17 +309,19 @@ def _generate(
         if len(frame_buffer) == CHUNKS_PER_SEGMENT:
             seg = emitted_segments
             seg_path = out_dir / f"seg_{run}_{seg:04d}.mp4"
-            write_segment_mp4(frame_buffer, seg_path, segment_wavs[seg], tgt_fps)
-            emit({"event": "segment", "run": run, "path": str(seg_path)})
+            writer.submit(frame_buffer, seg_path, segment_wavs[seg], run)
             frame_buffer = []
             emitted_segments += 1
 
     if frame_buffer:
         seg = emitted_segments
         seg_path = out_dir / f"seg_{run}_{seg:04d}.mp4"
-        write_segment_mp4(frame_buffer, seg_path, segment_wavs[seg], tgt_fps)
-        emit({"event": "segment", "run": run, "path": str(seg_path)})
+        writer.submit(frame_buffer, seg_path, segment_wavs[seg], run)
         emitted_segments += 1
+
+    # All segments encoded and emitted before the run is reported done.
+    writer.drain()
+    writer.stop()
 
     for w in segment_wavs:
         try:

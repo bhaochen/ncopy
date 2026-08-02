@@ -64,7 +64,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: asset: https://asset.localhost; media-src 'self' blob: asset: https://asset.localhost;",
+      "csp": "default-src 'self'; connect-src 'self' asset: https://asset.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: asset: https://asset.localhost; media-src 'self' blob: asset: https://asset.localhost;",
       "assetProtocol": {
         "enable": true,
         "scope": [

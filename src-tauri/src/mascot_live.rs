@@ -29,6 +29,13 @@ use tokio::sync::Mutex;
 /// Frontend event fired for every playable segment of the current live clip;
 /// the payload is a [`LiveSegment`].
 pub const MASCOT_LIVE_SEGMENT_EVENT: &str = "thuki://mascot-live-segment";
+/// Frontend event fired with the run's total audio duration (`{run,
+/// total_secs}`) before its first segment, so the frontend can size its
+/// pre-roll buffer.
+pub const MASCOT_LIVE_META_EVENT: &str = "thuki://mascot-live-meta";
+/// Frontend event fired when the pipeline has no more segments coming for the
+/// current run; the payload is the `run` number.
+pub const MASCOT_LIVE_DONE_EVENT: &str = "thuki://mascot-live-done";
 /// Frontend event fired when the live pipeline errors or the resident process
 /// dies; the stage should drop back to `idle`.
 pub const MASCOT_LIVE_ERROR_EVENT: &str = "thuki://mascot-live-error";
@@ -36,11 +43,21 @@ pub const MASCOT_LIVE_ERROR_EVENT: &str = "thuki://mascot-live-error";
 const LIVE_SAMPLE_RATE_HZ: &str = "16000";
 
 /// A playable segment of the current run: `run` groups segments of one
-/// read-aloud clip (bumped per generation), `path` is the mp4 to play.
+/// read-aloud clip (bumped per generation), `path` is the mp4 to play and
+/// `dur_secs` its content duration.
 #[derive(Clone, Serialize)]
 pub struct LiveSegment {
     pub run: u64,
     pub path: String,
+    pub dur_secs: f64,
+}
+
+/// Metadata for one run, emitted before its first segment: `run` groups the
+/// clip, `total_secs` is the full audio duration the segments will cover.
+#[derive(Clone, Serialize)]
+pub struct LiveMeta {
+    pub run: u64,
+    pub total_secs: f64,
 }
 
 /// Resident streamer bookkeeping. The process is spawned lazily on first
@@ -155,10 +172,20 @@ async fn handle_streamer_line(app: &AppHandle, line: &str) {
         Some("ready") => {
             live_streamer_state().lock().await.loading = false;
         }
+        Some("meta") => {
+            let (Some(run), Some(total_secs)) = (
+                msg.get("run").and_then(|r| r.as_u64()),
+                msg.get("total_secs").and_then(|t| t.as_f64()),
+            ) else {
+                return;
+            };
+            let _ = app.emit(MASCOT_LIVE_META_EVENT, LiveMeta { run, total_secs });
+        }
         Some("segment") => {
-            let (Some(run), Some(path)) = (
+            let (Some(run), Some(path), Some(dur_secs)) = (
                 msg.get("run").and_then(|r| r.as_u64()),
                 msg.get("path").and_then(|p| p.as_str()),
+                msg.get("dur_secs").and_then(|d| d.as_f64()),
             ) else {
                 return;
             };
@@ -167,11 +194,16 @@ async fn handle_streamer_line(app: &AppHandle, line: &str) {
                 LiveSegment {
                     run,
                     path: path.to_string(),
+                    dur_secs,
                 },
             );
         }
         Some("done") => {
-            // Generation consumed the wav; nothing else to forward.
+            // No more segments for this run; the frontend may stop holding
+            // the last frame and drop back to idle once it finishes playing.
+            if let Some(run) = msg.get("run").and_then(|r| r.as_u64()) {
+                let _ = app.emit(MASCOT_LIVE_DONE_EVENT, run);
+            }
         }
         Some("error") => {
             let msg = msg
@@ -298,13 +330,15 @@ mod tests {
     }
 
     #[test]
-    fn live_segment_serializes_run_and_path() {
+    fn live_segment_serializes_run_path_and_duration() {
         let json = serde_json::to_string(&LiveSegment {
             run: 3,
             path: "/tmp/seg_3_0000.mp4".to_string(),
+            dur_secs: 2.88,
         })
         .unwrap();
         assert!(json.contains("\"run\":3"));
         assert!(json.contains("\"path\":\"/tmp/seg_3_0000.mp4\""));
+        assert!(json.contains("\"dur_secs\":2.88"));
     }
 }

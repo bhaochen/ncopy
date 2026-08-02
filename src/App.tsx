@@ -77,6 +77,7 @@ import {
   serializeForClipboard,
   serializeForFile,
 } from './lib/exportSerializer';
+import { revokeVideoSrc, toPlayableVideoSrc } from './lib/livePlayback';
 import { replaceSelection, shouldAutoReplace } from './utils/replaceSelection';
 import { cleanForRender } from './utils/sanitizeAssistantContent';
 import {
@@ -103,6 +104,16 @@ const HISTORY_CLEARED_EVENT = 'thuki://history-cleared';
  * `run` stream back-to-back; a newer `run` resets the queue.
  */
 const MASCOT_LIVE_SEGMENT_EVENT = 'thuki://mascot-live-segment';
+/**
+ * The run's audio metadata (`run`, `total_secs`) arrives before its first
+ * segment so the pre-roll buffer can be sized for the whole reply.
+ */
+const MASCOT_LIVE_META_EVENT = 'thuki://mascot-live-meta';
+/**
+ * The pipeline has no more segments for the current `run`; the stage may stop
+ * holding the last frame once the tail segment finishes playing.
+ */
+const MASCOT_LIVE_DONE_EVENT = 'thuki://mascot-live-done';
 /** The live pipeline errored or its resident process died; stop the show. */
 const MASCOT_LIVE_ERROR_EVENT = 'thuki://mascot-live-error';
 
@@ -110,6 +121,14 @@ const MASCOT_LIVE_ERROR_EVENT = 'thuki://mascot-live-error';
 interface LiveSegmentPayload {
   run: number;
   src: string;
+  /** Content duration in seconds (drives the buffer-state calculations). */
+  durSecs: number;
+}
+
+/** Run metadata: `totalSecs` is the full audio duration of the reply. */
+interface LiveMetaPayload {
+  run: number;
+  totalSecs: number;
 }
 
 /**
@@ -1161,6 +1180,57 @@ function App() {
   const [liveIdx, setLiveIdx] = useState(-1);
   const [liveSeq, setLiveSeq] = useState(0);
   const liveRunRef = useRef(0);
+  /**
+   * Serializes segment resolution: `toPlayableVideoSrc` is async, so two
+   * nearly-simultaneous segments could resolve out of order and swap their
+   * playback order. Each event appends to this chain to preserve arrival
+   * order; resolution is a local fetch, so the added latency is negligible.
+   */
+  const liveResolveChainRef = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * The run that reported `done`, or `-1` when none has: no more segments are
+   * coming for that run, so the stage may leave `live` after its tail segment
+   * ends (and the prebuffer gate may open for it). Stored as the run number
+   * so a `done` that lands before its segments still matches them.
+   */
+  const liveDoneRef = useRef(-1);
+  /**
+   * `true` while the tail segment has finished but the next segment has not
+   * arrived yet — the video keeps its last frame instead of snapping back to
+   * idle mid-generation. Cleared when the next segment arrives or the run
+   * ends (`done` / error / newer run).
+   */
+  const liveHoldingRef = useRef(false);
+  /**
+   * The blob URL of the held segment, remembered so the segment listener
+   * (whose closures capture the first-render state) can release it when the
+   * next segment jumps in. `null` while nothing is held.
+   */
+  const liveHeldSrcRef = useRef<string | null>(null);
+  /**
+   * Playback gate state machine. Segments do not play the moment they arrive:
+   * `prebuffer` withholds the first segment until enough content exists that
+   * generation can keep pace with playback for the whole reply (see
+   * `maybeStartLivePlayback`), then `live` plays back-to-back, `holding`
+   * freezes the last frame when generation falls behind, and `done` /
+   * `error` / a newer run reset to `prebuffer` (idle is `liveIdx === -1`).
+   */
+  const livePhaseRef = useRef<'prebuffer' | 'live' | 'holding'>('prebuffer');
+  /** Cumulative content seconds of segments received for the current run. */
+  const liveGenSecsRef = useRef(0);
+  /** Total audio seconds of the current run (`null` until meta arrives). */
+  const liveTotalRef = useRef<number | null>(null);
+  /** The run the buffered `liveTotalRef` value belongs to. */
+  const liveMetaRunRef = useRef(-1);
+  /**
+   * Estimated generation rate (content seconds per real second), seeded
+   * conservatively at 0.85 and refreshed per segment from the wall-clock gap
+   * between arrivals. Persists across runs (recent hardware performance is a
+   * better prior than the seed).
+   */
+  const liveRateRef = useRef(0.85);
+  /** Wall-clock time of the last segment arrival, for rate sampling. */
+  const liveLastSegAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -1168,13 +1238,99 @@ function App() {
       const { run, path } = event.payload as LiveSegmentPayload & {
         path: string;
       };
-      if (run !== liveRunRef.current) {
-        liveRunRef.current = run;
-        setLiveQueue([{ run, src: convertFileSrc(path) }]);
-        setLiveIdx(0);
-        setLiveSeq((s) => s + 1);
-      } else {
-        setLiveQueue((prev) => [...prev, { run, src: convertFileSrc(path) }]);
+      liveResolveChainRef.current = liveResolveChainRef.current.then(() =>
+        toPlayableVideoSrc(path).then((src) => {
+          const durSecs = (event.payload as LiveSegmentPayload).durSecs ?? 0;
+          if (run !== liveRunRef.current) {
+            liveRunRef.current = run;
+            // `liveDoneRef` keeps the *run* that reported done, so a `done`
+            // that landed before its first segment still counts for it.
+            liveHoldingRef.current = false;
+            liveHeldSrcRef.current = null;
+            livePhaseRef.current = 'prebuffer';
+            liveGenSecsRef.current = 0;
+            // Keep the total if this run's meta already landed (it can arrive
+            // before the first segment; a late meta for an *older* run is
+            // overwritten by the next meta listener run).
+            if (liveMetaRunRef.current !== run) {
+              liveTotalRef.current = null;
+            }
+            liveLastSegAtRef.current = null;
+            setLiveQueue((prev) => {
+              prev.forEach((item) => revokeVideoSrc(item.src));
+              return [{ run, src, durSecs }];
+            });
+            // The new run's segments sit in the queue but do not play yet:
+            // `maybeStartLivePlayback` lifts the gate once enough content is
+            // buffered.
+            setLiveIdx(-1);
+          } else {
+            setLiveQueue((prev) => [...prev, { run, src, durSecs }]);
+            if (livePhaseRef.current === 'holding') {
+              // The player held the tail segment's last frame while this
+              // segment was being generated; release the held frame and jump
+              // straight to the new segment. Invariant: while `holding` the
+              // held src is always set (done/error/new-run clear both).
+              livePhaseRef.current = 'live';
+              revokeVideoSrc(liveHeldSrcRef.current as string);
+              liveHeldSrcRef.current = null;
+              setLiveIdx((prev) => prev + 1);
+              setLiveSeq((s) => s + 1);
+            }
+          }
+          // Refresh the rate estimate from the wall-clock gap between
+          // segment arrivals, then re-check the prebuffer gate.
+          const now = performance.now();
+          if (liveLastSegAtRef.current !== null) {
+            const dtSecs =
+              Math.max(now - liveLastSegAtRef.current, 3000) / 1000;
+            const instant = durSecs / dtSecs;
+            liveRateRef.current = liveRateRef.current * 0.7 + instant * 0.3;
+          }
+          liveLastSegAtRef.current = now;
+          liveGenSecsRef.current += durSecs;
+          maybeStartLivePlayback();
+        }),
+      );
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<LiveMetaPayload>(MASCOT_LIVE_META_EVENT, (event) => {
+      const { run, totalSecs } = event.payload as LiveMetaPayload;
+      liveMetaRunRef.current = run;
+      liveTotalRef.current = totalSecs;
+      maybeStartLivePlayback();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<number>(MASCOT_LIVE_DONE_EVENT, (event) => {
+      liveDoneRef.current = event.payload as number;
+      if (livePhaseRef.current === 'prebuffer') {
+        // The run is complete: the gate opens on the next gate re-check
+        // (segments may still be resolving) instead of forcing `liveIdx` on
+        // an empty queue.
+        maybeStartLivePlayback();
+      } else if (liveHoldingRef.current) {
+        // The tail segment finished and the run is over: nothing else will
+        // play, so leave the held last frame and go idle.
+        liveHoldingRef.current = false;
+        liveHeldSrcRef.current = null;
+        livePhaseRef.current = 'prebuffer';
+        setLiveQueue((prev) => {
+          prev.forEach((item) => revokeVideoSrc(item.src));
+          return [];
+        });
+        setLiveIdx(-1);
       }
     }).then((fn) => {
       unlisten = fn;
@@ -1185,7 +1341,18 @@ function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     void listen<string>(MASCOT_LIVE_ERROR_EVENT, () => {
-      setLiveQueue([]);
+      liveDoneRef.current = -1;
+      liveHoldingRef.current = false;
+      liveHeldSrcRef.current = null;
+      livePhaseRef.current = 'prebuffer';
+      liveGenSecsRef.current = 0;
+      liveTotalRef.current = null;
+      liveMetaRunRef.current = -1;
+      liveLastSegAtRef.current = null;
+      setLiveQueue((prev) => {
+        prev.forEach((item) => revokeVideoSrc(item.src));
+        return [];
+      });
       setLiveIdx(-1);
     }).then((fn) => {
       unlisten = fn;
@@ -1194,19 +1361,73 @@ function App() {
   }, []);
 
   // The only thing the stage needs from the queue is the segment currently
-  // playing. `liveIdx >= 0` is kept consistent with `liveQueue.length` by
-  // every reducer below, so the index access is safe.
+  // playing. Every path that opens the gate (segment resolve, meta, done)
+  // also queues a segment first, so the index access is safe.
   const liveVideoSrc = liveIdx >= 0 ? liveQueue[liveIdx].src : null;
 
+  /**
+   * The prebuffer gate. While `prebuffer`, playback waits until enough
+   * content has been generated that the remaining generation can finish
+   * before the remaining playback: with generated `G` of `T` content seconds
+   * and a generation rate `r̂` (content secs per real sec), playback keeps
+   * pace forever iff the remaining generation fits in the remaining playback
+   * time, `(T - G)/r̂ ≤ T - P`; before playback starts `P = 0`, so the gate
+   * opens once `G ≥ (1 - r̂)·T`. `r̂` is discounted by a safety factor so a
+   * modest slowdown does not starve the player, and the gate re-checks on
+   * every segment and on `meta` (which may arrive late).
+   */
+  const maybeStartLivePlayback = () => {
+    const total = liveTotalRef.current;
+    if (livePhaseRef.current !== 'prebuffer' || total === null) {
+      return;
+    }
+    const rate = liveRateRef.current * 0.95;
+    const needed = (1 - rate) * total;
+    // `done` starts the show no matter how little content is buffered (the
+    // whole run is generated by then); otherwise the gate needs enough
+    // generated content. `liveQueue[liveIdx]?.src` keeps the render safe if
+    // the queue has not filled yet.
+    const hasContent = liveGenSecsRef.current > 0;
+    if (
+      liveDoneRef.current === liveRunRef.current ||
+      (hasContent && liveGenSecsRef.current >= Math.max(0, needed))
+    ) {
+      livePhaseRef.current = 'live';
+      setLiveIdx(0);
+      setLiveSeq((s) => s + 1);
+    }
+  };
+
   const handleLiveEnded = useCallback(() => {
+    // A live error can drain the queue while the video element is still
+    // mounted; `ended` then fires with nothing queued (liveIdx === -1).
+    const current = liveQueue[liveIdx];
     if (liveIdx + 1 < liveQueue.length) {
+      if (current) {
+        revokeVideoSrc(current.src);
+      }
       setLiveIdx(liveIdx + 1);
       setLiveSeq((s) => s + 1);
-    } else {
+    } else if (liveDoneRef.current === liveRunRef.current) {
+      // Tail segment finished and the run is over — back to idle.
+      if (current) {
+        revokeVideoSrc(current.src);
+      }
+      liveHoldingRef.current = false;
+      liveHeldSrcRef.current = null;
+      livePhaseRef.current = 'prebuffer';
       setLiveQueue([]);
       setLiveIdx(-1);
+    } else if (current) {
+      // Tail segment finished but the next one is still generating: hold the
+      // last frame (keep the src, no revoke) until the next segment arrives
+      // or `done` closes the run. Without this the stage snaps back to idle
+      // and the late segment re-enters `live`, which reads as a replay.
+      livePhaseRef.current = 'holding';
+      liveHoldingRef.current = true;
+      liveHeldSrcRef.current = current.src;
     }
-  }, [liveIdx, liveQueue.length]);
+  }, [liveIdx, liveQueue]);
 
   /**
    * Active mascot stage. `live` (the spoken reply playing back) outranks
@@ -3508,7 +3729,9 @@ function App() {
       voiceEnabledRef.current = target;
       addStatusTurn(
         '/live',
-        target ? 'Live on — replies will be read aloud by the mascot.' : 'Live off.',
+        target
+          ? 'Live on — replies will be read aloud by the mascot.'
+          : 'Live off.',
       );
     } catch {
       addStatusTurn('/live', "Live couldn't be toggled. Try again.");
