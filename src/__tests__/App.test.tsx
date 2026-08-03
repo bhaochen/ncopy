@@ -7,6 +7,7 @@ import {
   within,
 } from '@testing-library/react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { StrictMode } from 'react';
 import App from '../App';
 import {
   DEFAULT_CONFIG,
@@ -12799,6 +12800,165 @@ describe('App', () => {
       });
       await act(async () => {});
       expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+    });
+
+    it('plays the full-mode clip once and does not replay it after it ends', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+
+      // Full mode: the backend emits meta, exactly one segment, then done.
+      // The segment resolves over the async asset-protocol fetch, so `done`
+      // typically lands before the blob URL is ready — the tightest replay
+      // race, and the one that matters for a single full clip.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 8,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1-full.mp4',
+          durSecs: 8,
+        });
+        emitTauriEvent('thuki://mascot-live-done', 1);
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const liveVideo = document.querySelector(
+        'video.mascot-stage-live-video',
+      )!;
+      expect(liveVideo).toHaveAttribute(
+        'src',
+        'blob:http://localhost/fake-blob-1',
+      );
+
+      // The single clip plays to its end and the run is over: back to idle.
+      fireEvent.focusOut(getAskInput());
+      fireEvent.ended(liveVideo);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+
+      // The run must not restart: no liveSeq bump rebuilding the video into a
+      // fresh auto-playing element, no new blob URL, no re-entry into `live`.
+      const videoAfter = document.querySelector(
+        'video.mascot-stage-live-video',
+      );
+      expect(videoAfter).toBe(liveVideo);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+    });
+
+    it('does not replay a stale held clip when a newer full run resolves', async () => {
+      render(<App />);
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+
+      // Run 1 (full): meta → segment → done, all before the blob resolves.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 8,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live-1-full.mp4',
+          durSecs: 8,
+        });
+        emitTauriEvent('thuki://mascot-live-done', 1);
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const firstVideo = document.querySelector(
+        'video.mascot-stage-live-video',
+      )!;
+      fireEvent.focusOut(getAskInput());
+      fireEvent.ended(firstVideo);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+
+      // A second reply's full clip arrives (run 2). The done-run bookkeeping
+      // of run 1 must not let it open the gate twice and replay the same
+      // clip: exactly one fresh video element, one blob URL, plays once.
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 2,
+          totalSecs: 8,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 2,
+          path: '/tmp/thuki/live-2-full.mp4',
+          durSecs: 8,
+        });
+        emitTauriEvent('thuki://mascot-live-done', 2);
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const secondVideo = document.querySelector(
+        'video.mascot-stage-live-video',
+      )!;
+      expect(secondVideo).toHaveAttribute(
+        'src',
+        'blob:http://localhost/fake-blob-2',
+      );
+      expect(secondVideo).not.toBe(firstVideo);
+
+      fireEvent.ended(secondVideo);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+    });
+
+    it('does not enqueue the same clip twice under StrictMode double-mount', async () => {
+      // `main.tsx` renders <App /> inside <React.StrictMode>, which in dev
+      // mounts, runs effects, cleans up, then re-runs them on the same
+      // instance. `listen` resolves asynchronously, so the first effect's
+      // cleanup runs before its unlisten exists and the first listener
+      // leaks. The same segment event then fires two handlers that share the
+      // instance's refs, enqueueing the clip twice — it replays back-to-back
+      // as a "double play". Regression: a single full-mode clip must play
+      // exactly once.
+      render(
+        <StrictMode>
+          <App />
+        </StrictMode>,
+      );
+      await act(async () => {});
+      await showOverlay();
+
+      const mascot = screen.getByTestId('mascot-stage');
+      fireEvent.focusOut(getAskInput());
+      await act(async () => {});
+      act(() => {
+        emitTauriEvent('thuki://mascot-live-meta', {
+          run: 1,
+          totalSecs: 4,
+        });
+        emitTauriEvent('thuki://mascot-live-segment', {
+          run: 1,
+          path: '/tmp/thuki/live.mp4',
+          durSecs: 2.88,
+        });
+        emitTauriEvent('thuki://mascot-live-done', 1);
+      });
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is live');
+      const video = document.querySelector('video.mascot-stage-live-video')!;
+      expect(video).toHaveAttribute('src', 'blob:http://localhost/fake-blob-1');
+
+      // The clip ends: the run is over and exactly one copy was queued, so
+      // the player returns to idle without rebuilding the element to replay.
+      fireEvent.ended(video);
+      await act(async () => {});
+      expect(mascot).toHaveAttribute('aria-label', 'Thuki is idle');
+      const after = document.querySelector('video.mascot-stage-live-video')!;
+      expect(after).toBe(video);
+      expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+        'blob:http://localhost/fake-blob-1',
+      );
     });
   });
 

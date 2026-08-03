@@ -1234,6 +1234,7 @@ function App() {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     void listen<LiveSegmentPayload>(MASCOT_LIVE_SEGMENT_EVENT, (event) => {
       const { run, path } = event.payload as LiveSegmentPayload & {
         path: string;
@@ -1293,26 +1294,56 @@ function App() {
         }),
       );
     }).then((fn) => {
-      unlisten = fn;
+      // StrictMode (dev) mounts, runs effects, cleans up, then re-runs them
+      // on the same instance. `listen` resolves asynchronously, so the first
+      // cleanup can run before its unlisten exists and the listener would
+      // leak — the same event then fires two handlers and a segment enqueues
+      // twice (the clip "plays twice"). `disposed` bridges the gap: a promise
+      // that resolves after cleanup unlistens immediately instead of keeping
+      // a stale handler alive.
+      if (disposed) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
-    return () => unlisten?.();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     void listen<LiveMetaPayload>(MASCOT_LIVE_META_EVENT, (event) => {
       const { run, totalSecs } = event.payload as LiveMetaPayload;
       liveMetaRunRef.current = run;
       liveTotalRef.current = totalSecs;
       maybeStartLivePlayback();
     }).then((fn) => {
-      unlisten = fn;
+      // StrictMode (dev) mounts, runs effects, cleans up, then re-runs them
+      // on the same instance. `listen` resolves asynchronously, so the first
+      // cleanup can run before its unlisten exists and the listener would
+      // leak — the same event then fires two handlers and a segment enqueues
+      // twice (the clip "plays twice"). `disposed` bridges the gap: a promise
+      // that resolves after cleanup unlistens immediately instead of keeping
+      // a stale handler alive.
+      if (disposed) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
-    return () => unlisten?.();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     void listen<number>(MASCOT_LIVE_DONE_EVENT, (event) => {
       liveDoneRef.current = event.payload as number;
       if (livePhaseRef.current === 'prebuffer') {
@@ -1333,13 +1364,28 @@ function App() {
         setLiveIdx(-1);
       }
     }).then((fn) => {
-      unlisten = fn;
+      // StrictMode (dev) mounts, runs effects, cleans up, then re-runs them
+      // on the same instance. `listen` resolves asynchronously, so the first
+      // cleanup can run before its unlisten exists and the listener would
+      // leak — the same event then fires two handlers and a segment enqueues
+      // twice (the clip "plays twice"). `disposed` bridges the gap: a promise
+      // that resolves after cleanup unlistens immediately instead of keeping
+      // a stale handler alive.
+      if (disposed) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
-    return () => unlisten?.();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     void listen<string>(MASCOT_LIVE_ERROR_EVENT, () => {
       liveDoneRef.current = -1;
       liveHoldingRef.current = false;
@@ -1355,15 +1401,29 @@ function App() {
       });
       setLiveIdx(-1);
     }).then((fn) => {
-      unlisten = fn;
+      // StrictMode (dev) mounts, runs effects, cleans up, then re-runs them
+      // on the same instance. `listen` resolves asynchronously, so the first
+      // cleanup can run before its unlisten exists and the listener would
+      // leak — the same event then fires two handlers and a segment enqueues
+      // twice (the clip "plays twice"). `disposed` bridges the gap: a promise
+      // that resolves after cleanup unlistens immediately instead of keeping
+      // a stale handler alive.
+      if (disposed) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
     });
-    return () => unlisten?.();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   // The only thing the stage needs from the queue is the segment currently
-  // playing. Every path that opens the gate (segment resolve, meta, done)
-  // also queues a segment first, so the index access is safe.
-  const liveVideoSrc = liveIdx >= 0 ? liveQueue[liveIdx].src : null;
+  // playing. The `?.` keeps the render safe if a gate re-check fires with the
+  // queue not yet filled (meta/done can race a slow segment resolve).
+  const liveVideoSrc = liveIdx >= 0 ? (liveQueue[liveIdx]?.src ?? null) : null;
 
   /**
    * The prebuffer gate. While `prebuffer`, playback waits until enough
@@ -1388,8 +1448,18 @@ function App() {
     // generated content. `liveQueue[liveIdx]?.src` keeps the render safe if
     // the queue has not filled yet.
     const hasContent = liveGenSecsRef.current > 0;
+    // `done` starts the show no matter how little content is buffered (the
+    // whole run is generated by then); otherwise the gate needs enough
+    // generated content. `liveMetaRunRef === liveRunRef` pins the buffered
+    // total to the current run: without it, a stale `done` from a previous
+    // run (refs are not cleared between runs) opens the gate on a new run's
+    // `meta` with the old queue, replaying a finished clip or crashing on an
+    // empty one.
+    const runDone =
+      liveDoneRef.current === liveRunRef.current &&
+      liveMetaRunRef.current === liveRunRef.current;
     if (
-      liveDoneRef.current === liveRunRef.current ||
+      runDone ||
       (hasContent && liveGenSecsRef.current >= Math.max(0, needed))
     ) {
       livePhaseRef.current = 'live';
