@@ -78,9 +78,7 @@ describe('MascotStage', () => {
       <MascotStage state="live" liveSrc="asset://a" liveKey={1} />,
     );
     const first = panelFor('live')!.querySelector('video');
-    rerender(
-      <MascotStage state="live" liveSrc="asset://a" liveKey={2} />,
-    );
+    rerender(<MascotStage state="live" liveSrc="asset://a" liveKey={2} />);
     expect(panelFor('live')!.querySelector('video')).not.toBe(first);
   });
 

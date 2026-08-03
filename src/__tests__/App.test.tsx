@@ -12892,6 +12892,77 @@ describe('App', () => {
       expect(screen.getByText('Live off.')).toBeInTheDocument();
     });
 
+    it('switches the mascot to full playout with /live full', async () => {
+      render(voiceTree(DEFAULT_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const textarea = getAskInput();
+      setAskValue('/live full');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith('set_config_field', {
+        section: 'voice',
+        key: 'live_mode',
+        value: 'full',
+      });
+      expect(
+        screen.getByText(
+          'Live mode: full — the mascot plays the complete reply once rendered.',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('switches the mascot to stream playout with /live stream', async () => {
+      render(voiceTree(DEFAULT_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const textarea = getAskInput();
+      setAskValue('/live stream');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+
+      expect(invoke).toHaveBeenCalledWith('set_config_field', {
+        section: 'voice',
+        key: 'live_mode',
+        value: 'stream',
+      });
+      expect(
+        screen.getByText(
+          'Live mode: stream — the mascot starts talking as it generates.',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('shows a failure confirmation when the live_mode write rejects', async () => {
+      render(voiceTree(DEFAULT_CONFIG));
+      await act(async () => {});
+      await showOverlay();
+
+      invoke.mockClear();
+      const defaultImpl = invoke.getMockImplementation();
+      invoke.mockImplementation((cmd, args) => {
+        if (cmd === 'set_config_field') {
+          return Promise.reject(new Error('write failed'));
+        }
+        return defaultImpl
+          ? defaultImpl(cmd, args)
+          : Promise.resolve(undefined);
+      });
+      const textarea = getAskInput();
+      setAskValue('/live full');
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+      await act(async () => {});
+
+      expect(
+        screen.getByText("Live mode couldn't be changed. Try again."),
+      ).toBeInTheDocument();
+    });
+
     it('shows a failure confirmation when the voice write rejects', async () => {
       render(voiceTree(DEFAULT_CONFIG));
       await act(async () => {});

@@ -228,12 +228,14 @@ Summarizes what a piece of text is about, then extracts every task, action item,
 
 ## /live
 
-Toggles the live mascot. When on, every finished assistant reply drives a 512x512 talking-head video of the mascot speaking the reply (Edge TTS + SoulX-FlashHead, zero-setup, keyless).
+Toggles the live mascot. When on, every finished assistant reply drives a 512x512 talking-head video of the mascot speaking the reply (Edge TTS + SoulX-FlashHead, zero-setup, keyless). `/live stream` and `/live full` switch how the video plays.
 
 **Usage:** `/live`
 
 **Examples:**
 - `/live`: turns the live mascot on, so finished replies are spoken by the mascot video
 - `/live` again: turns the live mascot off
+- `/live stream`: play reply segments as they generate (default)
+- `/live full`: render the whole reply first, then play the complete video
 
-**Behavior:** Toggles the live mascot for assistant replies. When on, each finished reply is synthesized with Edge TTS, transcoded to 16 kHz WAV, and streamed into SoulX-FlashHead to generate the talking-head video in segments; the video element carries both sight and sound, so nothing plays through the speakers. Toggling either way shows an in-chat confirmation (a status turn, never saved to history). The current state is stored in `[voice].enabled`. Does not trigger web search.
+**Behavior:** Toggles the live mascot for assistant replies. When on, each finished reply is synthesized with Edge TTS, transcoded to 16 kHz WAV, and sent to the resident SoulX-FlashHead service to generate the talking-head video. In `stream` mode (default) the video renders in segments and plays as it generates, so the mascot starts talking within a few seconds; `full` mode renders the entire reply before a single complete video plays. The video element carries both sight and sound, so nothing plays through the speakers. Toggling either way shows an in-chat confirmation (a status turn, never saved to history). The current state is stored in `[voice].enabled`; the playout mode in `[voice].live_mode`. Does not trigger web search.

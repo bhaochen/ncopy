@@ -111,7 +111,7 @@ vision = false
 
 #[test]
 fn allowed_fields_count_matches_schema_field_count() {
-    // + behavior(7) + debug(2) + updater(3) + voice(2) = 27 tunable flat fields.
+    // + behavior(7) + debug(2) + updater(3) + voice(3) = 28 tunable flat fields.
     // The inference section's two flat tunables are `keep_warm_inactivity_minutes`
     // and `num_ctx`; `active_provider` and the `providers` array are NOT flat
     // fields: they are written through the dedicated `set_active_model` /
@@ -127,7 +127,7 @@ fn allowed_fields_count_matches_schema_field_count() {
     // commands (mirroring the providers array), so it too is intentionally absent
     // from ALLOWED_FIELDS. If this assertion fails, the schema has drifted from the
     // allowlist and someone added a flat field without extending ALLOWED_FIELDS.
-    assert_eq!(ALLOWED_FIELDS.len(), 27);
+    assert_eq!(ALLOWED_FIELDS.len(), 28);
 }
 
 #[test]

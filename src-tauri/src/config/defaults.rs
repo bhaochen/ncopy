@@ -675,6 +675,7 @@ pub const ALLOWED_FIELDS: &[(&str, &str)] = &[
     // [voice]
     ("voice", "enabled"),
     ("voice", "voice"),
+    ("voice", "live_mode"),
 ];
 
 /// Authoritative allowlist of section names accepted by `reset_config`.
@@ -709,6 +710,11 @@ pub const DEFAULT_VOICE_ENABLED: bool = false;
 /// Edge TTS voice name used for read-aloud. A natural Chinese female voice,
 /// matching the model's usual reply language for Chinese-speaking users.
 pub const DEFAULT_VOICE_EDGE_VOICE: &str = "zh-CN-XiaoxiaoNeural";
+/// Talking-head playout mode: `"stream"` renders and plays reply segments as
+/// they generate (first segment within a few seconds), `"full"` renders the
+/// whole reply first and plays a single complete video. `"full"` costs a
+/// longer wait before the mascot appears but never holds frames.
+pub const DEFAULT_VOICE_LIVE_MODE: &str = "stream";
 /// Baked-in cap on characters spoken per reply. Edge's read-aloud endpoint
 /// drops or errors on oversized single requests, so a long answer is cut at
 /// the last sentence boundary inside this window rather than being sent whole.

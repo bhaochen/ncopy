@@ -255,6 +255,10 @@ pub async fn tts_speak(
         return Ok(());
     }
     let voice = config.read().voice.voice.clone();
+    // `[voice].live_mode` picks how the talking-head video plays: `stream`
+    // renders segments while the reply plays, `full` renders the whole reply
+    // first. Unknown values resolve to `stream` (the default).
+    let mode = crate::mascot_live::LiveMode::parse(&config.read().voice.live_mode);
     let temp = std::env::temp_dir().join(format!("thuki-tts-{}.mp3", uuid::Uuid::new_v4()));
     eprintln!(
         "[voice] speaking {} chars with {voice}",
@@ -267,7 +271,7 @@ pub async fn tts_speak(
     }
     // Hand the MP3 to the live-video pipeline; it transcodes to WAV, runs
     // SoulX-FlashHead, and owns both files' cleanup from here on.
-    crate::mascot_live::trigger_live_generation(&app, &temp).await;
+    crate::mascot_live::trigger_live_generation(&app, &temp, mode).await;
     Ok(())
 }
 

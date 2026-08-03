@@ -3738,6 +3738,33 @@ function App() {
     }
   }, [addStatusTurn]);
 
+  /**
+   * `/live stream` / `/live full`: switches how the mascot video plays.
+   * `stream` renders and plays reply segments as they generate; `full` renders
+   * the entire reply before a single video plays. Local-only: writes
+   * `[voice].live_mode` through `set_config_field`, never touches the model.
+   */
+  const handleLiveMode = useCallback(
+    async (mode: 'stream' | 'full') => {
+      try {
+        await invoke('set_config_field', {
+          section: 'voice',
+          key: 'live_mode',
+          value: mode,
+        });
+        addStatusTurn(
+          '/live',
+          mode === 'stream'
+            ? 'Live mode: stream — the mascot starts talking as it generates.'
+            : 'Live mode: full — the mascot plays the complete reply once rendered.',
+        );
+      } catch {
+        addStatusTurn('/live', "Live mode couldn't be changed. Try again.");
+      }
+    },
+    [addStatusTurn],
+  );
+
   const handleSubmit = useCallback(() => {
     if (
       (query.trim().length === 0 && attachedImages.length === 0) ||
@@ -3771,7 +3798,9 @@ function App() {
     }
 
     // `/live` read-aloud toggle: standalone only (no combining with other
-    // commands). Local-only — flips `[voice].enabled` and never touches the
+    // commands). `/live stream` / `/live full` (the only tolerated args)
+    // switch the mascot video's playout mode instead of toggling. Local-only
+    // — flips `[voice].enabled` / `[voice].live_mode` and never touches the
     // model — so it bypasses every capability/env gate below. The in-chat
     // confirmation is a status turn: not persisted, not spoken.
     if (found.has('/live') && found.size === 1) {
@@ -3781,7 +3810,12 @@ function App() {
         URL.revokeObjectURL(img.blobUrl);
       }
       setAttachedImages([]);
-      void handleVoiceToggle();
+      const modeArg = strippedMessage.trim().toLowerCase();
+      if (modeArg === 'stream' || modeArg === 'full') {
+        void handleLiveMode(modeArg);
+      } else {
+        void handleVoiceToggle();
+      }
       return;
     }
 
@@ -4011,6 +4045,7 @@ function App() {
     handleExtractSubmit,
     handleUtilityOcrSubmit,
     handleVoiceToggle,
+    handleLiveMode,
     selectedContext,
     setSelectedContext,
     attachedImages,

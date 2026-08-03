@@ -34,8 +34,9 @@ use super::defaults::{
     DEFAULT_QUOTE_MAX_DISPLAY_LINES, DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TEXT_BASE_PX,
     DEFAULT_TEXT_FONT_WEIGHT, DEFAULT_TEXT_LETTER_SPACING_PX, DEFAULT_TEXT_LINE_HEIGHT,
     DEFAULT_TRACE_RETENTION_DAYS, DEFAULT_UPDATER_CHECK_INTERVAL_HOURS,
-    DEFAULT_UPDATER_MANIFEST_URL, DEFAULT_VOICE_EDGE_VOICE, HISTORY_RETENTION_FOREVER,
-    MAX_DISMISSED_MEMORY_FIT_MODELS, SLASH_COMMAND_PROMPT_APPENDIX, TRACE_RETENTION_FOREVER,
+    DEFAULT_UPDATER_MANIFEST_URL, DEFAULT_VOICE_EDGE_VOICE, DEFAULT_VOICE_LIVE_MODE,
+    HISTORY_RETENTION_FOREVER, MAX_DISMISSED_MEMORY_FIT_MODELS, SLASH_COMMAND_PROMPT_APPENDIX,
+    TRACE_RETENTION_FOREVER,
 };
 use super::error::ConfigError;
 use super::schema::AppConfig;
@@ -280,9 +281,16 @@ pub(crate) fn resolve(config: &mut AppConfig) {
     }
 
     // Voice section: `enabled` is a boolean (any value valid); an empty voice
-    // name falls back to the compiled default.
+    // name falls back to the compiled default; an unknown `live_mode` falls
+    // back to the streaming playout.
     if config.voice.voice.trim().is_empty() {
         config.voice.voice = DEFAULT_VOICE_EDGE_VOICE.to_string();
+    }
+    let mode = config.voice.live_mode.trim().to_ascii_lowercase();
+    if !matches!(mode.as_str(), "stream" | "full") {
+        config.voice.live_mode = DEFAULT_VOICE_LIVE_MODE.to_string();
+    } else {
+        config.voice.live_mode = mode;
     }
 }
 

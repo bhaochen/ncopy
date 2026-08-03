@@ -136,6 +136,9 @@ dismissed_memory_fit_models = []
 enabled = false
 # Edge TTS voice name used for read-aloud.
 voice = "zh-CN-XiaoxiaoNeural"
+# Talking-head playout: "stream" plays segments as they generate, "full"
+# renders the whole reply before playing. /live stream|full toggles this.
+live_mode = "stream"
 
 [debug]
 # Records every chat conversation, including its built-in web-search turns, to
@@ -319,6 +322,7 @@ Read-aloud of assistant replies. Toggled at runtime by the `/live` slash command
 | :---------- | :--------------------- | :------- | :-------------- | :------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `enabled`   | `false`                | Yes      | n/a             | n/a      | Whether finished assistant replies are read aloud. `/live` flips this; the in-chat confirmation turn is not itself spoken. |
 | `voice`     | `"zh-CN-XiaoxiaoNeural"` | Yes    | n/a             | n/a      | Edge TTS voice name used for read-aloud. Empty values are healed to the compiled default on load. |
+| `live_mode` | `"stream"`             | Yes      | n/a             | n/a      | How the talking-head video is played: `stream` (default) renders and plays reply segments as they generate, so the mascot starts talking within a few seconds; `full` renders the entire reply first and plays a single complete video — a longer wait before the mascot appears, but playback never has to hold frames between segments. Toggle with `/live stream` or `/live full`. Unknown values are healed to `stream`. |
 | `MAX_TTS_CHARS` | `1000`             | No       | Prompt contract: the truncation width is baked into `voice.rs`, and the frontend's `ttsReadableText` deliberately does not truncate so the backend stays the single source of truth. Exposing it would let the two layers drift. | — | How many characters of a reply are sent to the TTS endpoint. Longer replies are cut at the nearest word boundary; the read-aloud never blocks on an overlong reply. |
 
 ### `[debug]`

@@ -25,9 +25,9 @@ use super::defaults::{
     DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TEXT_BASE_PX, DEFAULT_TEXT_FONT_WEIGHT,
     DEFAULT_TEXT_LETTER_SPACING_PX, DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TRACE_RETENTION_DAYS,
     DEFAULT_UPDATER_AUTO_CHECK, DEFAULT_UPDATER_CHECK_INTERVAL_HOURS, DEFAULT_UPDATER_MANIFEST_URL,
-    DEFAULT_VOICE_EDGE_VOICE, DEFAULT_VOICE_ENABLED, PROVIDER_ID_BUILTIN, PROVIDER_ID_NVIDIA,
-    PROVIDER_ID_OLLAMA, PROVIDER_ID_OPENCODE, PROVIDER_KIND_BUILTIN, PROVIDER_KIND_NVIDIA,
-    PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI, PROVIDER_KIND_OPENCODE,
+    DEFAULT_VOICE_EDGE_VOICE, DEFAULT_VOICE_ENABLED, DEFAULT_VOICE_LIVE_MODE, PROVIDER_ID_BUILTIN,
+    PROVIDER_ID_NVIDIA, PROVIDER_ID_OLLAMA, PROVIDER_ID_OPENCODE, PROVIDER_KIND_BUILTIN,
+    PROVIDER_KIND_NVIDIA, PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI, PROVIDER_KIND_OPENCODE,
 };
 
 /// A single configured inference provider. Exactly one is active at a time
@@ -457,6 +457,10 @@ pub struct VoiceSection {
     /// Edge TTS voice name used for read-aloud. An empty value is healed to the
     /// compiled default by the loader.
     pub voice: String,
+    /// How the talking-head video is played: `"stream"` renders and plays in
+    /// segments while generation runs, `"full"` renders the entire reply
+    /// before a single video plays. Unknown values are healed to `"stream"`.
+    pub live_mode: String,
 }
 
 impl Default for VoiceSection {
@@ -464,6 +468,7 @@ impl Default for VoiceSection {
         Self {
             enabled: DEFAULT_VOICE_ENABLED,
             voice: DEFAULT_VOICE_EDGE_VOICE.to_string(),
+            live_mode: DEFAULT_VOICE_LIVE_MODE.to_string(),
         }
     }
 }

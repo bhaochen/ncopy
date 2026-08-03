@@ -25,9 +25,9 @@ use super::defaults::{
     DEFAULT_SYSTEM_PROMPT_BASE, DEFAULT_TEXT_BASE_PX, DEFAULT_TEXT_FONT_WEIGHT,
     DEFAULT_TEXT_LETTER_SPACING_PX, DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TRACE_RETENTION_DAYS,
     DEFAULT_UPDATER_CHECK_INTERVAL_HOURS, DEFAULT_UPDATER_MANIFEST_URL, DEFAULT_VOICE_EDGE_VOICE,
-    DEFAULT_VOICE_ENABLED, HISTORY_RETENTION_FOREVER, PROVIDER_ID_BUILTIN, PROVIDER_ID_NVIDIA,
-    PROVIDER_ID_OLLAMA, PROVIDER_ID_OPENCODE, PROVIDER_KIND_BUILTIN, PROVIDER_KIND_NVIDIA,
-    PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI, PROVIDER_KIND_OPENCODE,
+    DEFAULT_VOICE_ENABLED, DEFAULT_VOICE_LIVE_MODE, HISTORY_RETENTION_FOREVER, PROVIDER_ID_BUILTIN,
+    PROVIDER_ID_NVIDIA, PROVIDER_ID_OLLAMA, PROVIDER_ID_OPENCODE, PROVIDER_KIND_BUILTIN,
+    PROVIDER_KIND_NVIDIA, PROVIDER_KIND_OLLAMA, PROVIDER_KIND_OPENAI, PROVIDER_KIND_OPENCODE,
     SLASH_COMMAND_PROMPT_APPENDIX,
 };
 use super::error::ConfigError;
@@ -1748,6 +1748,7 @@ fn default_voice_section_matches_constants() {
     let s = VoiceSection::default();
     assert_eq!(s.enabled, DEFAULT_VOICE_ENABLED);
     assert_eq!(s.voice, DEFAULT_VOICE_EDGE_VOICE);
+    assert_eq!(s.live_mode, DEFAULT_VOICE_LIVE_MODE);
 }
 
 #[test]
@@ -1771,6 +1772,7 @@ fn voice_fields_round_trip_through_load() {
     let cfg = load_from_path(&path).unwrap();
     assert!(cfg.voice.enabled);
     assert_eq!(cfg.voice.voice, "en-US-JennyNeural");
+    assert_eq!(cfg.voice.live_mode, DEFAULT_VOICE_LIVE_MODE);
 }
 
 #[test]
@@ -1783,11 +1785,31 @@ fn voice_empty_voice_falls_back_to_default() {
 }
 
 #[test]
+fn voice_live_mode_healed_and_normalized() {
+    let dir = fresh_temp_dir();
+    let path = config_path_in(&dir);
+
+    // Unknown value → streaming default.
+    std::fs::write(&path, "[voice]\nlive_mode = \"garbage\"\n").unwrap();
+    let cfg = load_from_path(&path).unwrap();
+    assert_eq!(cfg.voice.live_mode, DEFAULT_VOICE_LIVE_MODE);
+
+    // Case/whitespace normalized; both known modes preserved.
+    std::fs::write(&path, "[voice]\nlive_mode = \" FULL \"\n").unwrap();
+    let cfg = load_from_path(&path).unwrap();
+    assert_eq!(cfg.voice.live_mode, "full");
+    std::fs::write(&path, "[voice]\nlive_mode = \"stream\"\n").unwrap();
+    let cfg = load_from_path(&path).unwrap();
+    assert_eq!(cfg.voice.live_mode, "stream");
+}
+
+#[test]
 fn voice_toml_roundtrip_preserves_fields() {
     let original = AppConfig {
         voice: VoiceSection {
             enabled: true,
             voice: "en-US-JennyNeural".to_string(),
+            live_mode: "full".to_string(),
         },
         ..AppConfig::default()
     };
