@@ -26,7 +26,33 @@ import {
 } from '../config/versionAnnouncements';
 import type { AttachedImage } from '../types/image';
 import { MAX_IMAGE_SIZE_BYTES } from '../types/image';
-import { COMMANDS } from '../config/commands';
+import { COMMANDS, type Command } from '../config/commands';
+
+/**
+ * `/live` mode arguments surfaced as selectable suggestion rows alongside the
+ * `/live` toggle itself, so `stream` / `full` are discoverable while typing.
+ * Selecting one fills `/live stream ` / `/live full `, which the submit parser
+ * turns into the playout-mode switch (`handleLiveMode`). The rows only drive
+ * autocomplete — docs metadata is shared with `/live`, never re-generated.
+ */
+const LIVE_CMD = COMMANDS.find((cmd) => cmd.trigger === '/live')!;
+
+const LIVE_SUBCOMMANDS: readonly Command[] = [
+  {
+    trigger: '/live stream',
+    label: '/live stream',
+    description: 'Play reply segments as they generate (default)',
+    docs: LIVE_CMD.docs,
+    promptHelp: LIVE_CMD.promptHelp,
+  },
+  {
+    trigger: '/live full',
+    label: '/live full',
+    description: 'Render the whole reply first, then play the complete video',
+    docs: LIVE_CMD.docs,
+    promptHelp: LIVE_CMD.promptHelp,
+  },
+];
 
 /**
  * Hoisted static SVG - prevents re-allocation on every render cycle.
@@ -544,17 +570,22 @@ export function AskBarView({
   }, [rawQuery, lastSlashWord]);
 
   /** Commands that match the current prefix, excluding already-used ones. */
-  const filteredCommands = useMemo(
-    () =>
-      showSuggestions
-        ? COMMANDS.filter(
-            (cmd) =>
-              cmd.trigger.startsWith(commandPrefix) &&
-              !usedCommands.has(cmd.trigger),
-          )
-        : [],
-    [showSuggestions, commandPrefix, usedCommands],
-  );
+  const filteredCommands = useMemo(() => {
+    if (!showSuggestions) return [];
+    const base = COMMANDS.filter(
+      (cmd) =>
+        cmd.trigger.startsWith(commandPrefix) && !usedCommands.has(cmd.trigger),
+    );
+    // `/live` takes `stream` / `full` as playout-mode arguments; surface
+    // them as selectable rows so the modes are discoverable while typing.
+    // They only appear while the prefix is exactly `/live`: the suggestion
+    // engine matches a single slash word, so any trailing space already
+    // ends the prefix.
+    if (commandPrefix === '/live' && !usedCommands.has('/live')) {
+      return [...base, ...LIVE_SUBCOMMANDS];
+    }
+    return base;
+  }, [showSuggestions, commandPrefix, usedCommands]);
 
   // Reset the highlighted index whenever the command prefix changes
   // (user typed more characters and the results updated).

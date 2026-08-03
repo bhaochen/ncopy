@@ -1602,6 +1602,50 @@ describe('AskBarView', () => {
       expect(screen.getByText('/screen')).toBeInTheDocument();
     });
 
+    it('shows /live stream and /live full subcommand rows when typing /live', () => {
+      renderWithQuery('/live');
+      const options = screen.getAllByRole('option');
+      expect(options[0]).toHaveTextContent('/live');
+      expect(options[0]).toHaveTextContent(
+        'Toggle the live mascot talking-head video for replies',
+      );
+      expect(options[1]).toHaveTextContent('/live stream');
+      expect(options[1]).toHaveTextContent(
+        'Play reply segments as they generate (default)',
+      );
+      expect(options[2]).toHaveTextContent('/live full');
+      expect(options[2]).toHaveTextContent(
+        'Render the whole reply first, then play the complete video',
+      );
+    });
+
+    it('suppresses live subcommands when /live is already used in the text', () => {
+      renderWithQuery('/live /live');
+      expect(screen.queryByText('/live stream')).toBeNull();
+      expect(screen.queryByText('/live full')).toBeNull();
+    });
+
+    it('Tab on the /live stream subcommand completes it', () => {
+      const setQuery = vi.fn();
+      render(
+        <AskBarView
+          {...IMAGE_DEFAULTS}
+          query="/live"
+          setQuery={setQuery}
+          isChatMode={false}
+          isGenerating={false}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+          inputRef={makeRef()}
+        />,
+      );
+      const textarea = getInput();
+      // Rows: 0 = /live, 1 = /live stream, 2 = /live full.
+      fireEvent.keyDown(textarea, { key: 'ArrowDown' });
+      fireEvent.keyDown(textarea, { key: 'Tab' });
+      expect(setQuery).toHaveBeenCalledWith('/live stream ');
+    });
+
     it('does not show CommandSuggestion when query does not start with "/"', () => {
       renderWithQuery('hello');
       expect(

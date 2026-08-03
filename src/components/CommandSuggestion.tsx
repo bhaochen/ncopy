@@ -415,6 +415,8 @@ function iconForTrigger(trigger: string): React.ReactNode {
     case '/extract':
       return EXTRACT_ICON;
     case '/live':
+    case '/live stream':
+    case '/live full':
       return VOICE_ICON;
     default:
       return SCREEN_ICON;

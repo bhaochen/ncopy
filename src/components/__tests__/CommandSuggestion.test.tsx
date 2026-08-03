@@ -272,6 +272,36 @@ describe('CommandSuggestion', () => {
     expect(liveSvg?.innerHTML).not.toBe(screenSvg?.innerHTML);
   });
 
+  it('renders a distinct icon for /live subcommand rows (not the screen monitor icon)', () => {
+    const subCommands = [
+      makeCommand(
+        '/live stream',
+        'Play reply segments as they generate (default)',
+      ),
+      makeCommand(
+        '/live full',
+        'Render the whole reply first, then play the complete video',
+      ),
+    ];
+    const { container: liveContainer } = render(
+      <CommandSuggestion
+        commands={subCommands}
+        highlightedIndex={-1}
+        onSelect={vi.fn()}
+      />,
+    );
+    const { container: screenContainer } = render(
+      <CommandSuggestion
+        commands={[SCREEN_CMD]}
+        highlightedIndex={-1}
+        onSelect={vi.fn()}
+      />,
+    );
+    const liveSvg = liveContainer.querySelector('svg');
+    const screenSvg = screenContainer.querySelector('svg');
+    expect(liveSvg?.innerHTML).not.toBe(screenSvg?.innerHTML);
+  });
+
   it('renders a distinct icon for /search (not the screen monitor icon)', () => {
     const { container: searchContainer } = render(
       <CommandSuggestion
